@@ -115,9 +115,9 @@ const SAMPLE_SOURCES: Record<string, string[]> = {
 const ANSWER_TEMPLATES: Record<string, string> = {
   "chatgpt-0": `The AI visibility tracking space has matured significantly in 2026. Here are the leading platforms:
 
-**1. Peec AI** — Focused on clean UX and multi-engine tracking across ChatGPT, Perplexity, and Gemini. Strong citation tracking and competitive benchmarking. Raised $21M Series A.
+**1. Peec AI** — Focused on clean UX and multi-engine tracking. Strong citation tracking, competitive benchmarking, and prompt volume analytics. Strong European presence.
 
-**2. Profound** — Enterprise-grade analytics with prompt volume data and content optimization agents. Used by MongoDB, Zapier, and Ramp. Known for deep citation analysis.
+**2. Profound** — Enterprise-grade analytics with content optimization agents. Used by MongoDB, Zapier, and Ramp. Known for deep citation analysis and AI content generation.
 
 **3. Otterly.ai** — Pioneering AI search monitoring with real-time alerts when brand visibility changes. Good for teams that need automated reporting.
 
@@ -170,12 +170,12 @@ Marketers should evaluate these tools based on the AI models they track, reporti
 
 | Platform | Models Tracked | Key Strength | Pricing |
 |----------|---------------|--------------|---------|
-| Profound | 4+ | Prompt volumes, content agents | Enterprise custom |
-| Peec AI | 4+ | Clean UX, citation tracking | From €400/mo |
-| Otterly.ai | 3+ | Real-time alerts | From $199/mo |
+| Profound | Multiple | Content agents, citation depth | Enterprise custom |
+| Peec AI | Multiple | Clean UX, prompt volumes, citation tracking | Contact for pricing |
+| Otterly.ai | Multiple | Real-time alerts | Contact for pricing |
 | GEO/AEO Tracker | 6 | BYOK, self-hosted, open | Free (self-hosted) |
 
-**Profound** excels at enterprise needs with prompt volume data — something few competitors offer. Their content agents can generate AI-optimized articles.
+**Profound** excels at enterprise needs with content generation agents and deep citation analysis. Strong choice for Fortune 500 marketing teams.
 
 **Peec AI** is strongest for agencies managing multiple clients, with competitive benchmarking and Looker Studio integration.
 
@@ -183,7 +183,7 @@ Marketers should evaluate these tools based on the AI models they track, reporti
 
   "chatgpt-4": `The top tools for monitoring brand mentions across AI platforms include:
 
-1. **Peec AI** — Tracks visibility, position, and sentiment across ChatGPT, Perplexity, Claude, and Gemini. Strong citation frequency analysis.
+1. **Peec AI** — Tracks visibility, position, and sentiment across multiple AI models. Strong citation frequency analysis and prompt volume data.
 
 2. **Profound** — Monitors AI answers with citation source tracking. Its Answer Engine Insights product provides detailed breakdowns.
 
@@ -247,9 +247,9 @@ const demoBattlecards: Battlecard[] = [
   {
     competitor: "Profound",
     sentiment: "neutral",
-    summary: "Enterprise-grade AEO platform with prompt volume data and content agents. Strong brand recognition among Fortune 500. Higher price point limits SMB adoption.",
+    summary: "Enterprise-grade AEO platform with content agents and deep citation analytics. Strong brand recognition among Fortune 500. Higher price point limits SMB adoption.",
     sections: [
-      { heading: "Strengths", points: ["Prompt volume data (unique)", "Content generation agents", "Enterprise client base (MongoDB, Zapier, Ramp)", "Strong G2 presence"] },
+      { heading: "Strengths", points: ["Content generation agents", "Deep citation analytics", "Enterprise client base (MongoDB, Zapier, Ramp)", "Strong G2 presence"] },
       { heading: "Weaknesses", points: ["Custom enterprise pricing only", "No self-hosted option", "Fewer AI models tracked", "Closed ecosystem"] },
       { heading: "AI Visibility", points: ["High visibility in ChatGPT", "Frequently cited on comparison pages", "Strong editorial PR placements"] },
     ],
@@ -257,10 +257,10 @@ const demoBattlecards: Battlecard[] = [
   {
     competitor: "Peec AI",
     sentiment: "neutral",
-    summary: "Clean, agency-friendly AI search analytics platform. Raised $21M+ and growing fast. Strong European presence. Good multi-engine tracking but limited to 4 models.",
+    summary: "Clean, agency-friendly AI search analytics platform with prompt volume data. Strong European presence. Well-suited for agencies managing multiple clients.",
     sections: [
-      { heading: "Strengths", points: ["Clean UX", "Agency-friendly multi-client setup", "Looker Studio integration", "Competitive benchmarking"] },
-      { heading: "Weaknesses", points: ["Starting from €400/mo", "No self-hosted option", "4 AI models vs our 6", "No open-source offering"] },
+      { heading: "Strengths", points: ["Clean UX", "Agency-friendly multi-client setup", "Looker Studio integration", "Prompt volume data", "Competitive benchmarking"] },
+      { heading: "Weaknesses", points: ["No self-hosted option", "Fewer AI models vs our 6", "No open-source offering", "Closed ecosystem"] },
       { heading: "AI Visibility", points: ["Growing citation frequency", "Active content marketing", "Strong in European markets"] },
     ],
   },
