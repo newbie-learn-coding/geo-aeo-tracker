@@ -112,17 +112,6 @@ const sections: DocSection[] = [
     ],
   },
   {
-    id: "automation",
-    title: "Automation",
-    icon: "⚡",
-    content: [
-      "Store deployment-ready scheduling templates for recurring prompt runs.",
-      "Cron expression editor for Vercel Cron or server-side scheduling.",
-      "GitHub Actions workflow template for CI/CD-based automated tracking.",
-      "Copy either template directly into your infrastructure for hands-off monitoring.",
-    ],
-  },
-  {
     id: "workspaces",
     title: "Multi-Brand Workspaces",
     icon: "🏢",

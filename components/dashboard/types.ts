@@ -77,28 +77,6 @@ export const PROVIDER_LABELS: Record<Provider, string> = {
   grok: "Grok",
 };
 
-/** A drift alert generated when visibility changes significantly between auto-runs */
-export type DriftAlert = {
-  id: string;
-  prompt: string;
-  provider: Provider;
-  oldScore: number;
-  newScore: number;
-  delta: number;
-  createdAt: string;
-  dismissed: boolean;
-};
-
-/** Schedule interval value in milliseconds */
-export type ScheduleInterval = 3600000 | 21600000 | 43200000 | 86400000;
-
-export const SCHEDULE_OPTIONS: { value: ScheduleInterval; label: string; desc: string }[] = [
-  { value: 3600000, label: "Every Hour", desc: "Run once per hour" },
-  { value: 21600000, label: "Every 6 Hours", desc: "Run 4× per day" },
-  { value: 43200000, label: "Every 12 Hours", desc: "Run 2× per day" },
-  { value: 86400000, label: "Daily", desc: "Once per day" },
-];
-
 /** Computed delta for a prompt+provider pair between runs */
 export type RunDelta = {
   prompt: string;
@@ -121,18 +99,10 @@ export type AppState = {
   fanoutPrompts: string[];
   niche: string;
   nicheQueries: string[];
-  cronExpr: string;
-  githubWorkflow: string;
   competitors: string;
   runs: ScrapeRun[];
   auditUrl: string;
   auditReport: AuditReport | null;
-  /** In-app scheduling */
-  scheduleEnabled: boolean;
-  scheduleIntervalMs: ScheduleInterval;
-  lastScheduledRun: string | null;
-  /** Drift alerts from auto-runs */
-  driftAlerts: DriftAlert[];
 };
 
 export const tabs = [
@@ -145,7 +115,6 @@ export const tabs = [
   "Citations",
   "Citation Opportunities",
   "AEO Audit",
-  "Automation",
   "Documentation",
 ] as const;
 

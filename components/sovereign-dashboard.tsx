@@ -1,10 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { loadSovereignValue, saveSovereignValue, clearSovereignStore } from "@/lib/client/sovereign-store";
 import { DEMO_STATE } from "@/lib/demo-data";
 import { AeoAuditTab } from "@/components/dashboard/tabs/aeo-audit-tab";
-import { AutomationTab } from "@/components/dashboard/tabs/automation-tab-v2";
 import { CitationOpportunitiesTab } from "@/components/dashboard/tabs/citation-opportunities-tab";
 import { NicheExplorerTab } from "@/components/dashboard/tabs/niche-explorer-tab";
 import { FanOutTab } from "@/components/dashboard/tabs/fan-out-tab";
@@ -15,8 +14,8 @@ import { ReputationSourcesTab } from "@/components/dashboard/tabs/reputation-sou
 import { VisibilityAnalyticsTab } from "@/components/dashboard/tabs/visibility-analytics-tab";
 import { DocumentationTab } from "@/components/dashboard/tabs/documentation-tab";
 import { DemoLimitModal } from "@/components/dashboard/demo-limit-modal";
-import type { AppState, DriftAlert, Provider, RunDelta, ScrapeRun, TabKey, Workspace } from "@/components/dashboard/types";
-import { ALL_PROVIDERS, PROVIDER_LABELS, SCHEDULE_OPTIONS, tabs } from "@/components/dashboard/types";
+import type { AppState, Provider, RunDelta, ScrapeRun, TabKey, Workspace } from "@/components/dashboard/types";
+import { ALL_PROVIDERS, PROVIDER_LABELS, tabs } from "@/components/dashboard/types";
 
 /* ── Inline SVG icon helpers (16×16) ─────────────────────────────── */
 function Icon({ children }: { children: ReactNode }) {
@@ -62,11 +61,6 @@ const tabIcons: Record<TabKey, ReactNode> = {
     <Icon>
       <circle cx="11" cy="11" r="8" />
       <path d="m21 21-4.3-4.3" />
-    </Icon>
-  ),
-  Automation: (
-    <Icon>
-      <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
     </Icon>
   ),
   Responses: (
@@ -140,17 +134,10 @@ const defaultState: AppState = {
   fanoutPrompts: [],
   niche: "AI SEO platform for B2B SaaS",
   nicheQueries: [],
-  cronExpr: "0 */6 * * *",
-  githubWorkflow:
-    "name: sovereign-aeo\non:\n  schedule:\n    - cron: '0 */6 * * *'\njobs:\n  track:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm ci && npm run test:scraper",
   competitors: "profound.com, otterly.ai, peec.ai",
   runs: [],
   auditUrl: "https://example.com",
   auditReport: null,
-  scheduleEnabled: false,
-  scheduleIntervalMs: 21600000,
-  lastScheduledRun: null,
-  driftAlerts: [],
 };
 
 const tabMeta: Record<TabKey, { title: string; tooltip: string; details: string }> = {
@@ -177,12 +164,6 @@ const tabMeta: Record<TabKey, { title: string; tooltip: string; details: string 
     tooltip: "Generate high-intent GEO/AEO queries.",
     details:
       "Build a reusable bank of niche prompts focused on discoverability, citations, and buyer intent so your tracking set stays comprehensive.",
-  },
-  Automation: {
-    title: "Automation",
-    tooltip: "Configure recurring runs via cron/workflows.",
-    details:
-      "Store deployment-ready scheduling templates for Vercel Cron and GitHub Actions so tracking can run automatically on a repeat cadence.",
   },
   Responses: {
     title: "Responses",
@@ -308,119 +289,6 @@ export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } 
     }
   }, [state, activeWsId]);
 
-  /** ref to the scheduler interval so we can clear/re-create it */
-  const schedulerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  /** ref to latest state so the scheduler callback doesn't close over stale state */
-  const stateRef = useRef(state);
-  stateRef.current = state;
-  const busyRef = useRef(busy);
-  busyRef.current = busy;
-
-  /** ref to latest callScrapeOne so the scheduler callback doesn't use stale brand terms */
-  const callScrapeOneRef = useRef<(prompt: string, provider: Provider) => Promise<ScrapeRun | null>>(
-    // placeholder — will be assigned after callScrapeOne is defined
-    async () => null,
-  );
-
-  /** Detect drift after a batch of new runs */
-  function detectDrift(newRuns: ScrapeRun[], existingRuns: ScrapeRun[]): DriftAlert[] {
-    const alerts: DriftAlert[] = [];
-    const DRIFT_THRESHOLD = 10; // minimum score change to trigger alert
-
-    newRuns.forEach((newRun) => {
-      // Find the most recent existing run with same prompt+provider
-      const prev = existingRuns.find(
-        (r) => r.prompt === newRun.prompt && r.provider === newRun.provider,
-      );
-      if (!prev) return;
-      const delta = (newRun.visibilityScore ?? 0) - (prev.visibilityScore ?? 0);
-      if (Math.abs(delta) >= DRIFT_THRESHOLD) {
-        alerts.push({
-          id: `drift-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          prompt: newRun.prompt,
-          provider: newRun.provider,
-          oldScore: prev.visibilityScore ?? 0,
-          newScore: newRun.visibilityScore ?? 0,
-          delta,
-          createdAt: new Date().toISOString(),
-          dismissed: false,
-        });
-      }
-    });
-
-    return alerts;
-  }
-
-  /** Run a scheduled batch and detect drift */
-  const runScheduledBatch = useCallback(async () => {
-    const s = stateRef.current;
-    if (busyRef.current) return; // skip if already running
-    const prompts = s.customPrompts.length > 0 ? s.customPrompts : [s.prompt];
-    const providers = s.activeProviders;
-    if (prompts.length === 0 || providers.length === 0) return;
-
-    setBusy(true);
-    setMessage("Auto-run: Starting scheduled batch…");
-
-    const allRuns: ScrapeRun[] = [];
-    for (const prompt of prompts) {
-      const results = await Promise.allSettled(
-        providers.map((p) => callScrapeOneRef.current(prompt, p)),
-      );
-      for (const r of results) {
-        if (r.status === "fulfilled" && r.value) allRuns.push(r.value);
-      }
-    }
-
-    // Detect drift against existing runs
-    const newAlerts = detectDrift(allRuns, s.runs);
-
-    setState((prev) => ({
-      ...prev,
-      runs: [...allRuns, ...prev.runs].slice(0, 500),
-      lastScheduledRun: new Date().toISOString(),
-      driftAlerts: [...newAlerts, ...prev.driftAlerts].slice(0, 100),
-    }));
-
-    setMessage(
-      `Auto-run complete: ${allRuns.length} results.${newAlerts.length > 0 ? ` ${newAlerts.length} drift alert${newAlerts.length > 1 ? "s" : ""} triggered.` : ""}`,
-    );
-    setBusy(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  /** Set up / tear down the scheduler interval */
-  useEffect(() => {
-    if (schedulerRef.current) {
-      clearInterval(schedulerRef.current);
-      schedulerRef.current = null;
-    }
-    if (!demoMode && state.scheduleEnabled && state.scheduleIntervalMs > 0) {
-      schedulerRef.current = setInterval(runScheduledBatch, state.scheduleIntervalMs);
-    }
-    return () => {
-      if (schedulerRef.current) {
-        clearInterval(schedulerRef.current);
-        schedulerRef.current = null;
-      }
-    };
-  }, [state.scheduleEnabled, state.scheduleIntervalMs, runScheduledBatch]);
-
-  function dismissAlert(id: string) {
-    setState((prev) => ({
-      ...prev,
-      driftAlerts: prev.driftAlerts.map((a) =>
-        a.id === id ? { ...a, dismissed: true } : a,
-      ),
-    }));
-  }
-
-  function dismissAllAlerts() {
-    setState((prev) => ({
-      ...prev,
-      driftAlerts: prev.driftAlerts.map((a) => ({ ...a, dismissed: true })),
-    }));
-  }
 
   function switchWorkspace(wsId: string) {
     if (demoMode) { setMessage("Demo mode — workspaces are read-only"); return; }
@@ -595,12 +463,6 @@ export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } 
     const olderAvg = olderHalf.reduce((a, r) => a + (r.visibilityScore ?? 0), 0) / olderHalf.length;
     return Math.round(recentAvg - olderAvg);
   }, [state.runs]);
-
-  /** Unread drift alerts count */
-  const unreadAlertCount = useMemo(
-    () => state.driftAlerts.filter((a) => !a.dismissed).length,
-    [state.driftAlerts],
-  );
 
   /** Brand context string injected into AI prompts when available */
   const brandCtx = state.brand.brandName
@@ -831,8 +693,6 @@ export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } 
     }
   }
 
-  // Keep the ref up-to-date so the scheduler always uses latest brand/competitor terms
-  callScrapeOneRef.current = callScrapeOne;
 
   /** Run a prompt across all activeProviders in parallel */
   async function callScrape(prompt: string) {
@@ -1139,26 +999,6 @@ Requirements:
       );
     }
 
-    if (activeTab === "Automation") {
-      return (
-        <AutomationTab
-          scheduleEnabled={state.scheduleEnabled}
-          scheduleIntervalMs={state.scheduleIntervalMs}
-          lastScheduledRun={state.lastScheduledRun}
-          driftAlerts={state.driftAlerts}
-          busy={busy}
-          onToggleSchedule={(enabled) =>
-            setState((prev) => ({ ...prev, scheduleEnabled: enabled }))
-          }
-          onIntervalChange={(interval) =>
-            setState((prev) => ({ ...prev, scheduleIntervalMs: interval }))
-          }
-          onRunNow={runScheduledBatch}
-          onDismissAlert={dismissAlert}
-          onDismissAllAlerts={dismissAllAlerts}
-        />
-      );
-    }
 
     if (activeTab === "Responses") {
       return (
@@ -1322,11 +1162,6 @@ Requirements:
                     {tabIcons[tab]}
                   </span>
                   <span className="truncate">{tabMeta[tab].title}</span>
-                  {tab === "Automation" && unreadAlertCount > 0 && (
-                    <span className="ml-auto rounded-full bg-[var(--accent-error)] px-1.5 py-0.5 text-[9px] font-bold leading-none text-white">
-                      {unreadAlertCount}
-                    </span>
-                  )}
                 </button>
                 {isSettings && (
                   <div className="mb-1 mt-2 border-t border-[var(--border-subtle)] pt-2 px-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-disabled)]">

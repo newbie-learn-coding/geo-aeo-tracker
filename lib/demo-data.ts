@@ -1,4 +1,4 @@
-import type { AppState, ScrapeRun, DriftAlert, AuditReport, Provider } from "@/components/dashboard/types";
+import type { AppState, ScrapeRun, AuditReport, Provider } from "@/components/dashboard/types";
 
 /* ─────────────────────────  Deterministic helpers ───────────────────────── */
 /**
@@ -266,30 +266,6 @@ const demoAuditReport: AuditReport = {
   pass: { llmsTxt: true, schema: true, bluf: true },
 };
 
-/* ─────────────────────────  Drift Alerts ───────────────────────── */
-const demoDriftAlerts: DriftAlert[] = [
-  {
-    id: "drift-demo-1",
-    prompt: "What are the best AI visibility tracking tools for marketing teams in 2026?",
-    provider: "chatgpt",
-    oldScore: 62,
-    newScore: 81,
-    delta: 19,
-    createdAt: "2026-02-13T08:00:00.000Z",
-    dismissed: false,
-  },
-  {
-    id: "drift-demo-2",
-    prompt: "Compare the top answer engine optimization platforms for enterprise brands.",
-    provider: "perplexity",
-    oldScore: 45,
-    newScore: 31,
-    delta: -14,
-    createdAt: "2026-02-12T16:00:00.000Z",
-    dismissed: false,
-  },
-];
-
 /* ─────────────────────────  Full State ───────────────────────── */
 export const DEMO_STATE: AppState = {
   brand: {
@@ -320,15 +296,8 @@ export const DEMO_STATE: AppState = {
     "monitor brand mentions in AI responses",
     "answer engine optimization for SaaS",
   ],
-  cronExpr: "0 */6 * * *",
-  githubWorkflow:
-    "name: geo-aeo-tracker\non:\n  schedule:\n    - cron: '0 */6 * * *'\njobs:\n  track:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm ci && npm run test:scraper",
   competitors: "profound.com, peec.ai, otterly.ai",
   runs: generateRuns(),
   auditUrl: "https://geoaeotracker.com",
   auditReport: demoAuditReport,
-  scheduleEnabled: true,
-  scheduleIntervalMs: 21600000,
-  lastScheduledRun: "2026-02-14T06:00:00.000Z",
-  driftAlerts: demoDriftAlerts,
 };
