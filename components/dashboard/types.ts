@@ -20,6 +20,8 @@ export type ScrapeRun = {
   brandMentions: string[];
   /** Competitor names found in the answer */
   competitorMentions: string[];
+  /** Whether this run has been scored by the AI analyzer (vs heuristics) */
+  aiAnalyzed?: boolean;
 };
 
 export type AuditCheck = {

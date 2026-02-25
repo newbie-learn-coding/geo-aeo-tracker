@@ -22,14 +22,32 @@ export function PromptHubTab({
   onBatchRunAll,
 }: PromptHubTabProps) {
   const [newPrompt, setNewPrompt] = useState("");
+  const [limitHit, setLimitHit] = useState(false);
+
+  const isMultiPromptBlocked = customPrompts.length > 1;
 
   const interpolateBrand = (value: string) => {
     return value.replace(/\{([^}]+)\}/g, (_, token: string) => {
       if (token.toLowerCase() === "brand") return brandName?.trim() || token;
-      // f-string style: {Monday} → "Monday"
       return token;
     });
   };
+
+  function handleRunPrompt(prompt: string) {
+    if (isMultiPromptBlocked) {
+      setLimitHit(true);
+      return;
+    }
+    onRunPrompt(prompt);
+  }
+
+  function handleBatchRunAll() {
+    if (isMultiPromptBlocked) {
+      setLimitHit(true);
+      return;
+    }
+    onBatchRunAll();
+  }
 
   return (
     <div className="space-y-4">
@@ -40,15 +58,33 @@ export function PromptHubTab({
           </div>
           {customPrompts.length > 0 && (
             <button
-              disabled={busy}
-              onClick={onBatchRunAll}
-              className="bd-btn-primary rounded-lg px-3 py-1.5 text-sm disabled:opacity-60"
-              title={`Run all ${customPrompts.length} prompts × ${activeProviderCount} model${activeProviderCount > 1 ? "s" : ""}`}
+              disabled={busy || isMultiPromptBlocked}
+              onClick={handleBatchRunAll}
+              className="bd-btn-primary rounded-lg px-3 py-1.5 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              title={
+                isMultiPromptBlocked
+                  ? "Only 1 prompt can be run at a time in this demo"
+                  : `Run all ${customPrompts.length} prompts × ${activeProviderCount} model${activeProviderCount > 1 ? "s" : ""}`
+              }
             >
               ▶ Run All ({customPrompts.length} × {activeProviderCount})
             </button>
           )}
         </div>
+
+        {limitHit && (
+          <div className="mb-3 flex items-center gap-2 rounded-lg border border-[var(--accent-warning,#f59e0b)] bg-[rgba(245,158,11,0.08)] px-3 py-2 text-xs text-[var(--accent-warning,#f59e0b)]">
+            <span>⚠</span>
+            <span>You are in demo mode and are only allowed to run 1 prompt at a time.</span>
+            <button
+              onClick={() => setLimitHit(false)}
+              className="ml-auto shrink-0 opacity-60 hover:opacity-100 transition-opacity"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         <p className="mb-3 text-sm text-th-text-secondary">
           Add the exact prompts you want to track over time. Use <span className="font-semibold">{"{brand}"}</span> to inject your brand name.
           {activeProviderCount > 1 && (
@@ -86,8 +122,10 @@ export function PromptHubTab({
               <div className="mb-2 line-clamp-3 text-th-text">{interpolateBrand(item)}</div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => onRunPrompt(interpolateBrand(item))}
-                  className="bd-btn-primary rounded-md px-3 py-1.5 text-xs"
+                  disabled={busy || isMultiPromptBlocked}
+                  onClick={() => handleRunPrompt(interpolateBrand(item))}
+                  className="bd-btn-primary rounded-md px-3 py-1.5 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
+                  title={isMultiPromptBlocked ? "Only 1 prompt can be run at a time in this demo" : "Run this prompt"}
                 >
                   Run
                 </button>

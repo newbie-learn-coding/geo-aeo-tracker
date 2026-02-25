@@ -14,6 +14,7 @@ import { PromptHubTab } from "@/components/dashboard/tabs/prompt-hub-tab";
 import { ReputationSourcesTab } from "@/components/dashboard/tabs/reputation-sources-tab";
 import { VisibilityAnalyticsTab } from "@/components/dashboard/tabs/visibility-analytics-tab";
 import { DocumentationTab } from "@/components/dashboard/tabs/documentation-tab";
+import { DemoLimitModal } from "@/components/dashboard/demo-limit-modal";
 import type { AppState, DriftAlert, Provider, RunDelta, ScrapeRun, TabKey, Workspace } from "@/components/dashboard/types";
 import { ALL_PROVIDERS, PROVIDER_LABELS, SCHEDULE_OPTIONS, tabs } from "@/components/dashboard/types";
 
@@ -224,6 +225,8 @@ const tabMeta: Record<TabKey, { title: string; tooltip: string; details: string 
   },
 };
 
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+
 export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } = {}) {
   const [activeTab, setActiveTab] = useState<TabKey>("Prompt Hub");
   const [state, setState] = useState<AppState>(demoMode ? DEMO_STATE : defaultState);
@@ -234,6 +237,7 @@ export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } 
   const [activeWsId, setActiveWsId] = useState<string>("default");
   const [showWsPicker, setShowWsPicker] = useState(false);
   const [showScoreInfo, setShowScoreInfo] = useState(false);
+  const [showDemoModal, setShowDemoModal] = useState(false);
 
 
   /** Load workspaces on mount */
@@ -711,56 +715,121 @@ export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } 
   async function callScrapeOne(prompt: string, provider: Provider): Promise<ScrapeRun | null> {
     if (demoMode) { setMessage("Demo mode — API calls are disabled"); return null; }
     try {
+      console.log(`[scrape] callScrapeOne: START provider=${provider} prompt="${prompt.slice(0, 80)}..."`);
+
       // Trigger — returns immediately with a jobId
-      const triggerRes = await fetch("/api/scrape/trigger", {
+      const triggerRes = await fetch(`${BASE_PATH}/api/scrape/trigger`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider, prompt, requireSources: true }),
       });
       const triggerData = await triggerRes.json();
-      if (!triggerRes.ok) throw new Error(triggerData.error || "Trigger failed");
+      if (triggerRes.status === 429 && triggerData.rateLimited) {
+        console.log(`[scrape] callScrapeOne: Rate limited provider=${provider}`);
+        setShowDemoModal(true);
+        return null;
+      }
+      if (!triggerRes.ok) {
+        console.error(`[scrape] callScrapeOne: Trigger FAILED provider=${provider} status=${triggerRes.status} error="${triggerData.error}"`);
+        throw new Error(triggerData.error || "Trigger failed");
+      }
       const { jobId } = triggerData as { jobId: string };
+      console.log(`[scrape] callScrapeOne: Triggered provider=${provider} jobId=${jobId}`);
 
       // Poll until ready, failed, or 90s timeout
       const POLL_INTERVAL_MS = 2000;
-      const TIMEOUT_MS = 90_000;
+      const TIMEOUT_MS = 240_000;
       const deadline = Date.now() + TIMEOUT_MS;
+      let pollCount = 0;
 
       while (Date.now() < deadline) {
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        pollCount++;
 
-        const statusRes = await fetch(`/api/scrape/status/${jobId}`);
+        const statusRes = await fetch(`${BASE_PATH}/api/scrape/status/${jobId}`);
         const statusData = await statusRes.json() as {
           status: "pending" | "ready" | "failed";
           result?: { provider: string; prompt: string; answer: string; sources: string[]; createdAt: string };
           error?: string;
         };
 
+        console.log(`[scrape] callScrapeOne: Poll #${pollCount} jobId=${jobId} provider=${provider} status=${statusData.status}`);
+
         if (statusData.status === "failed") {
+          console.error(`[scrape] callScrapeOne: Job FAILED jobId=${jobId} provider=${provider} error="${statusData.error}"`);
           throw new Error(statusData.error || "Scrape job failed");
         }
 
         if (statusData.status === "ready" && statusData.result) {
           const { answer: answerText, sources: sourceList, provider: p, prompt: pr, createdAt } = statusData.result;
-          const brandTerms = getBrandTerms();
-          const competitorTerms = getCompetitorTerms();
+          console.log(`[scrape] callScrapeOne: READY provider=${provider} jobId=${jobId} answer.length=${answerText.length} sources=${sourceList.length}`);
+
+          // AI-powered analysis (accumulation: only new runs get analyzed)
+          let visibilityScore: number;
+          let sentiment: ScrapeRun["sentiment"];
+          let brandMentions: string[];
+          let competitorMentions: string[];
+          let aiAnalyzed = false;
+
+          try {
+            const analysisRes = await fetch(`${BASE_PATH}/api/analyze-run`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                answer: answerText,
+                brandName: state.brand.brandName,
+                brandAliases: state.brand.brandAliases,
+                brandWebsite: state.brand.website,
+                competitors: state.competitors,
+              }),
+            });
+            if (analysisRes.ok) {
+              const analysis = await analysisRes.json() as {
+                visibilityScore: number;
+                sentiment: ScrapeRun["sentiment"];
+                brandMentioned: boolean;
+                brandMentions: string[];
+                competitorMentions: string[];
+              };
+              visibilityScore = analysis.visibilityScore;
+              sentiment = analysis.sentiment;
+              brandMentions = analysis.brandMentions;
+              competitorMentions = analysis.competitorMentions;
+              aiAnalyzed = true;
+              console.log(`[scrape] callScrapeOne: AI analysis done provider=${provider} score=${visibilityScore} sentiment=${sentiment}`);
+            } else {
+              throw new Error(`analyze-run HTTP ${analysisRes.status}`);
+            }
+          } catch (analysisErr) {
+            console.warn(`[scrape] callScrapeOne: AI analysis failed, falling back to heuristics. Error:`, analysisErr instanceof Error ? analysisErr.message : analysisErr);
+            const brandTerms = getBrandTerms();
+            const competitorTerms = getCompetitorTerms();
+            visibilityScore = calcVisibilityScore(answerText, sourceList, brandTerms);
+            sentiment = detectSentiment(answerText, brandTerms);
+            brandMentions = findMentions(answerText, brandTerms);
+            competitorMentions = findMentions(answerText, competitorTerms);
+          }
+
           return {
             provider: p as Provider,
             prompt: pr,
             answer: answerText,
             sources: sourceList,
             createdAt: createdAt || new Date().toISOString(),
-            visibilityScore: calcVisibilityScore(answerText, sourceList, brandTerms),
-            sentiment: detectSentiment(answerText, brandTerms),
-            brandMentions: findMentions(answerText, brandTerms),
-            competitorMentions: findMentions(answerText, competitorTerms),
+            visibilityScore,
+            sentiment,
+            brandMentions,
+            competitorMentions,
+            aiAnalyzed,
           };
         }
         // status === "pending" → keep polling
       }
 
+      console.error(`[scrape] callScrapeOne: TIMED OUT provider=${provider} jobId=${jobId} after ${pollCount} polls`);
       throw new Error("Timed out waiting for scrape result");
-    } catch {
+    } catch (err) {
+      console.error(`[scrape] callScrapeOne: CAUGHT ERROR provider=${provider}`, err instanceof Error ? err.message : err);
       return null;
     }
   }
@@ -939,7 +1008,7 @@ export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } 
     setMessage("Generating niche queries...");
 
     try {
-      const response = await fetch("/api/analyze", {
+      const response = await fetch(`${BASE_PATH}/api/analyze`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -992,7 +1061,7 @@ Requirements:
     setMessage("Running AEO audit...");
 
     try {
-      const response = await fetch("/api/audit", {
+      const response = await fetch(`${BASE_PATH}/api/audit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: state.auditUrl }),
@@ -1133,6 +1202,9 @@ Requirements:
 
   return (
     <div className="flex h-screen overflow-hidden text-th-text" style={{ background: "var(--bg-deep)" }}>
+      {/* ── Rate limit modal ───────────────────────────────── */}
+      {showDemoModal && <DemoLimitModal onClose={() => setShowDemoModal(false)} />}
+
       {/* ── Ambient background layers ─────────────────────── */}
       <div className="fixed inset-0 pointer-events-none z-0">
         <div className="absolute inset-0 bd-bg-ambient" />
@@ -1144,11 +1216,8 @@ Requirements:
         {/* Brand / Workspace switcher */}
         <div className="border-b border-[var(--border-subtle)] px-4 py-3">
           {/* Logo row */}
-          <div className="flex items-center gap-1.5 mb-3">
-            <span className="text-sm font-bold text-white">bright</span>
-            <span className="text-sm font-bold text-[var(--accent-primary)]">data</span>
-            <span className="text-[var(--text-disabled)] mx-1">×</span>
-            <span className="text-sm font-bold text-white">AEO</span>
+          <div className="flex items-center gap-2 mb-3">
+            <img src={`${BASE_PATH}/brightdata-logo.svg`} alt="Bright Data" className="h-5 w-auto" />
             {demoMode && (
               <span className="ml-auto px-1.5 py-0.5 rounded text-[10px] font-medium bg-white/8 text-[var(--text-tertiary)] border border-[var(--border-subtle)]">
                 Demo
@@ -1280,15 +1349,13 @@ Requirements:
             rel="noopener noreferrer"
             className="group flex items-center gap-3 rounded-xl border border-[var(--border-accent)] bg-[var(--accent-primary-muted)] px-3 py-3 transition-all hover:bg-[rgba(61,127,252,0.18)] hover:border-[rgba(61,127,252,0.5)] hover:shadow-[var(--shadow-glow-primary)]"
           >
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#9D97F4] via-[#3D7FFC] to-[#15C1E6]">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-xs font-semibold text-white">
-                <span className="text-white">bright</span>
-                <span className="text-[var(--accent-primary)]">data</span>
-              </div>
-              <div className="text-[10px] text-[var(--text-tertiary)]">Web data infrastructure</div>
+            <div className="min-w-0 flex-1 flex items-center">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`${BASE_PATH}/brightdata-logo.svg`}
+                alt="Bright Data"
+                className="h-7 w-auto object-contain"
+              />
             </div>
             <svg className="shrink-0 text-[var(--text-tertiary)] group-hover:text-[var(--accent-primary)] transition-colors" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
           </a>

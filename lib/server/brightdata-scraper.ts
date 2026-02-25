@@ -310,6 +310,8 @@ async function monitorUntilReady(snapshotId: string) {
     );
 
     if (!monitorRes.ok) {
+      const body = await monitorRes.text().catch(() => "(unreadable)");
+      console.error(`[BD] monitorUntilReady: HTTP ${monitorRes.status} for snapshot ${snapshotId}. Body: ${body}`);
       throw new Error(`Monitor failed (${monitorRes.status})`);
     }
 
@@ -317,17 +319,21 @@ async function monitorUntilReady(snapshotId: string) {
       status: "starting" | "running" | "ready" | "failed";
     };
 
+    console.log(`[BD] monitorUntilReady: attempt ${attempt + 1}/${maxAttempts}, snapshot=${snapshotId}, status=${monitorJson.status}`);
+
     if (monitorJson.status === "ready") {
       return;
     }
 
     if (monitorJson.status === "failed") {
+      console.error(`[BD] monitorUntilReady: snapshot ${snapshotId} reported failed`);
       throw new Error("Snapshot failed");
     }
 
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
 
+  console.error(`[BD] monitorUntilReady: timed out after ${maxAttempts} attempts for snapshot ${snapshotId}`);
   throw new Error("Timed out while waiting for snapshot readiness");
 }
 
@@ -353,7 +359,10 @@ export async function runAiScraper(
   const parsed = ProviderSchema.parse(request.provider);
   const datasetId = getDatasetId(parsed);
 
+  console.log(`[BD] runAiScraper: START provider=${parsed} prompt="${request.prompt.slice(0, 80)}..."`);
+
   if (!datasetId) {
+    console.error(`[BD] runAiScraper: MISSING dataset id for provider=${parsed}. Expected env var: ${providerToDatasetEnv[parsed]}`);
     throw new Error(
       `Missing dataset id for provider ${parsed}. Expected env: ${providerToDatasetEnv[parsed]}`,
     );
@@ -362,6 +371,7 @@ export async function runAiScraper(
   const cacheKey = buildCacheKey(request);
   const cacheHit = inMemoryCache.get(cacheKey);
   if (cacheHit && cacheHit.expiresAt > Date.now()) {
+    console.log(`[BD] runAiScraper: CACHE HIT provider=${parsed}`);
     return {
       ...cacheHit.value,
       cached: true,
@@ -378,6 +388,8 @@ export async function runAiScraper(
     inputRecord.geolocation = request.country;
   }
 
+  console.log(`[BD] runAiScraper: Triggering scrape for provider=${parsed}, datasetId=${datasetId}`);
+
   const scrapeResponse = await fetch(
     `https://api.brightdata.com/datasets/v3/scrape?dataset_id=${datasetId}&notify=false&include_errors=true&format=json`,
     {
@@ -387,21 +399,28 @@ export async function runAiScraper(
     },
   );
 
+  console.log(`[BD] runAiScraper: Scrape trigger response status=${scrapeResponse.status} provider=${parsed}`);
+
   let payload: unknown;
 
   if (scrapeResponse.status === 202) {
     const pending = (await scrapeResponse.json()) as {
       snapshot_id: string;
     };
+    console.log(`[BD] runAiScraper: Async job, snapshot_id=${pending.snapshot_id}, polling...`);
     await monitorUntilReady(pending.snapshot_id);
+    console.log(`[BD] runAiScraper: Snapshot ready, downloading snapshot_id=${pending.snapshot_id}`);
     payload = await downloadSnapshot(pending.snapshot_id);
   } else {
     if (!scrapeResponse.ok) {
       const text = await scrapeResponse.text();
+      console.error(`[BD] runAiScraper: Scrape trigger FAILED provider=${parsed} status=${scrapeResponse.status} body=${text}`);
       throw new Error(`Scrape failed (${scrapeResponse.status}): ${text}`);
     }
     payload = await scrapeResponse.json();
   }
+
+  console.log(`[BD] runAiScraper: Raw payload received for provider=${parsed}, type=${Array.isArray(payload) ? "array" : typeof payload}, length=${Array.isArray(payload) ? (payload as unknown[]).length : "n/a"}`);
 
   // Keep unsanitized first record for structured source extraction
   const rawFirst = Array.isArray(payload)
@@ -409,12 +428,21 @@ export async function runAiScraper(
     : (payload as Record<string, unknown>);
   const rawRecord = (rawFirst ?? {}) as Record<string, unknown>;
 
+  // Log raw top-level keys to help diagnose field mapping issues
+  console.log(`[BD] runAiScraper: Raw record top-level keys for provider=${parsed}: [${Object.keys(rawRecord).join(", ")}]`);
+
   const sanitizedPayload = stripAnswerHtml(payload);
   const sanitizedFirst = Array.isArray(sanitizedPayload)
     ? sanitizedPayload[0]
     : (sanitizedPayload as Record<string, unknown>);
   const record = (sanitizedFirst ?? {}) as Record<string, unknown>;
   const answer = normalizeAnswer(record);
+
+  if (!answer || answer.length < 10) {
+    console.warn(`[BD] runAiScraper: EMPTY or SHORT answer extracted for provider=${parsed}. answer="${answer}". Raw keys: [${Object.keys(rawRecord).join(", ")}]. Snippet: ${JSON.stringify(rawRecord).slice(0, 300)}`);
+  } else {
+    console.log(`[BD] runAiScraper: Answer extracted for provider=${parsed}, length=${answer.length}`);
+  }
 
   // Extract sources from answer text
   const textSources = extractSourcesFromAnswer(answer);
@@ -439,6 +467,7 @@ export async function runAiScraper(
 
   // Merge and deduplicate
   const allSources = [...new Set([...textSources, ...structuredSources])];
+  console.log(`[BD] runAiScraper: Sources extracted for provider=${parsed}: textSources=${textSources.length}, structuredSources=${structuredSources.length}, total=${allSources.length}`);
 
   const normalized: NormalizedScrapeResult = {
     provider: parsed,
@@ -457,5 +486,6 @@ export async function runAiScraper(
     value: normalized,
   });
 
+  console.log(`[BD] runAiScraper: SUCCESS provider=${parsed}, answer.length=${answer.length}, sources=${allSources.length}`);
   return normalized;
 }
