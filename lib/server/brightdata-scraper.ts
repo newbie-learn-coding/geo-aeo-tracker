@@ -36,14 +36,14 @@ const providerBaseUrl: Record<Provider, string> = {
   grok: "https://grok.com/",
 };
 
-type ScrapeRequest = {
+export type ScrapeRequest = {
   provider: Provider;
   prompt: string;
   requireSources?: boolean;
   country?: string;
 };
 
-type NormalizedScrapeResult = {
+export type NormalizedScrapeResult = {
   provider: Provider;
   prompt: string;
   answer: string;

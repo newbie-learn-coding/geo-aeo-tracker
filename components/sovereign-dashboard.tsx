@@ -120,7 +120,7 @@ const tabIcons: Record<TabKey, ReactNode> = {
 const STORAGE_KEY = "sovereign-aeo-tracker-v1";
 const WORKSPACES_KEY = "sovereign-workspaces";
 const ACTIVE_WS_KEY = "sovereign-active-workspace";
-const THEME_KEY = "sovereign-theme";
+// THEME_KEY removed — dark mode only
 
 function storageKeyForWorkspace(wsId: string) {
   return wsId === "default" ? STORAGE_KEY : `sovereign-aeo-tracker-${wsId}`;
@@ -245,46 +245,15 @@ export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } 
   const [state, setState] = useState<AppState>(demoMode ? DEMO_STATE : defaultState);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(demoMode ? "Demo mode — read-only preview" : "");
-  const [theme, setTheme] = useState<"light" | "dark" | "system">("system");
+
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeWsId, setActiveWsId] = useState<string>("default");
   const [showWsPicker, setShowWsPicker] = useState(false);
   const [showScoreInfo, setShowScoreInfo] = useState(false);
 
-  /** Apply theme class to <html> */
-  const applyTheme = useCallback((t: "light" | "dark" | "system") => {
-    const root = document.documentElement;
-    if (t === "dark") {
-      root.classList.add("dark");
-    } else if (t === "light") {
-      root.classList.remove("dark");
-    } else {
-      // system
-      if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-        root.classList.add("dark");
-      } else {
-        root.classList.remove("dark");
-      }
-    }
-  }, []);
-
-  function cycleTheme() {
-    const order: ("light" | "dark" | "system")[] = ["light", "dark", "system"];
-    const next = order[(order.indexOf(theme) + 1) % 3];
-    setTheme(next);
-    applyTheme(next);
-    if (!demoMode) localStorage.setItem(THEME_KEY, next);
-  }
 
   /** Load workspaces on mount */
   useEffect(() => {
-    // Theme
-    const savedTheme = localStorage.getItem(THEME_KEY) as "light" | "dark" | "system" | null;
-    if (savedTheme) {
-      setTheme(savedTheme);
-      applyTheme(savedTheme);
-    }
-
     if (demoMode) return; // Skip workspace loading in demo mode
 
     // Workspaces
@@ -305,7 +274,7 @@ export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } 
       setWorkspaces([defaultWs]);
       setActiveWsId("default");
     }
-  }, [applyTheme]);
+  }, []);
 
   /** Load app state for active workspace */
   useEffect(() => {
@@ -754,39 +723,59 @@ export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } 
     return Math.min(100, score);
   }
 
-  /** Run a single scrape against one specific provider */
+  /** Run a single scrape against one specific provider (trigger + poll) */
   async function callScrapeOne(prompt: string, provider: Provider): Promise<ScrapeRun | null> {
     if (demoMode) { setMessage("Demo mode — API calls are disabled"); return null; }
     try {
-      const response = await fetch("/api/scrape", {
+      // Trigger — returns immediately with a jobId
+      const triggerRes = await fetch("/api/scrape/trigger", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          provider,
-          prompt,
-          requireSources: true,
-        }),
+        body: JSON.stringify({ provider, prompt, requireSources: true }),
       });
+      const triggerData = await triggerRes.json();
+      if (!triggerRes.ok) throw new Error(triggerData.error || "Trigger failed");
+      const { jobId } = triggerData as { jobId: string };
 
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Scrape request failed");
+      // Poll until ready, failed, or 90s timeout
+      const POLL_INTERVAL_MS = 2000;
+      const TIMEOUT_MS = 90_000;
+      const deadline = Date.now() + TIMEOUT_MS;
 
-      const answerText = data.answer || "";
-      const sourceList = data.sources || [];
-      const brandTerms = getBrandTerms();
-      const competitorTerms = getCompetitorTerms();
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
 
-      return {
-        provider: data.provider,
-        prompt: data.prompt,
-        answer: answerText,
-        sources: sourceList,
-        createdAt: data.createdAt || new Date().toISOString(),
-        visibilityScore: calcVisibilityScore(answerText, sourceList, brandTerms),
-        sentiment: detectSentiment(answerText, brandTerms),
-        brandMentions: findMentions(answerText, brandTerms),
-        competitorMentions: findMentions(answerText, competitorTerms),
-      };
+        const statusRes = await fetch(`/api/scrape/status/${jobId}`);
+        const statusData = await statusRes.json() as {
+          status: "pending" | "ready" | "failed";
+          result?: { provider: string; prompt: string; answer: string; sources: string[]; createdAt: string };
+          error?: string;
+        };
+
+        if (statusData.status === "failed") {
+          throw new Error(statusData.error || "Scrape job failed");
+        }
+
+        if (statusData.status === "ready" && statusData.result) {
+          const { answer: answerText, sources: sourceList, provider: p, prompt: pr, createdAt } = statusData.result;
+          const brandTerms = getBrandTerms();
+          const competitorTerms = getCompetitorTerms();
+          return {
+            provider: p as Provider,
+            prompt: pr,
+            answer: answerText,
+            sources: sourceList,
+            createdAt: createdAt || new Date().toISOString(),
+            visibilityScore: calcVisibilityScore(answerText, sourceList, brandTerms),
+            sentiment: detectSentiment(answerText, brandTerms),
+            brandMentions: findMentions(answerText, brandTerms),
+            competitorMentions: findMentions(answerText, competitorTerms),
+          };
+        }
+        // status === "pending" → keep polling
+      }
+
+      throw new Error("Timed out waiting for scrape result");
     } catch {
       return null;
     }
@@ -797,6 +786,11 @@ export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } 
 
   /** Run a prompt across all activeProviders in parallel */
   async function callScrape(prompt: string) {
+    // Interpolate {brand} before sending to the scraper
+    const interpolated = prompt.replace(/\{([^}]+)\}/g, (_, token: string) => {
+      if (token.toLowerCase() === "brand") return state.brand.brandName || "our brand";
+      return token;
+    });
     const providers = state.activeProviders.length > 0
       ? state.activeProviders
       : [state.provider];
@@ -806,7 +800,7 @@ export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } 
 
     try {
       const results = await Promise.allSettled(
-        providers.map((p) => callScrapeOne(prompt, p)),
+        providers.map((p) => callScrapeOne(interpolated, p)),
       );
 
       const runs: ScrapeRun[] = results
@@ -837,7 +831,10 @@ export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } 
   /** Batch run all custom prompts across all active providers */
   async function batchRunAllPrompts() {
     const prompts = state.customPrompts.map((p) =>
-      p.replace(/\{brand\}/gi, state.brand.brandName || "our brand"),
+      p.replace(/\{([^}]+)\}/g, (_, token: string) => {
+        if (token.toLowerCase() === "brand") return state.brand.brandName || "our brand";
+        return token;
+      }),
     );
     if (prompts.length === 0) {
       setMessage("No tracking prompts to run. Add prompts first.");
@@ -1306,63 +1303,79 @@ Now analyze all ${competitorList.length} competitors:`,
     );
   }
 
-  const themeIcon = theme === "dark" ? "🌙" : theme === "light" ? "☀️" : "💻";
-
   return (
-    <div className="flex h-screen overflow-hidden text-th-text">
+    <div className="flex h-screen overflow-hidden text-th-text" style={{ background: "var(--bg-deep)" }}>
+      {/* ── Ambient background layers ─────────────────────── */}
+      <div className="fixed inset-0 pointer-events-none z-0">
+        <div className="absolute inset-0 bd-bg-ambient" />
+        <div className="absolute inset-0 bd-bg-grid opacity-100" />
+      </div>
+
       {/* ── Fixed sidebar ──────────────────────────────────── */}
-      <aside className="flex w-[250px] shrink-0 flex-col border-r border-th-border bg-th-sidebar">
+      <aside className="relative z-10 flex w-[252px] shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-elevated)]" style={{ backdropFilter: "blur(12px)" }}>
         {/* Brand / Workspace switcher */}
-        <div className="border-b border-th-border px-4 py-3">
+        <div className="border-b border-[var(--border-subtle)] px-4 py-3">
+          {/* Logo row */}
+          <div className="flex items-center gap-1.5 mb-3">
+            <span className="text-sm font-bold text-white">bright</span>
+            <span className="text-sm font-bold text-[var(--accent-primary)]">data</span>
+            <span className="text-[var(--text-disabled)] mx-1">×</span>
+            <span className="text-sm font-bold text-white">AEO</span>
+            {demoMode && (
+              <span className="ml-auto px-1.5 py-0.5 rounded text-[10px] font-medium bg-white/8 text-[var(--text-tertiary)] border border-[var(--border-subtle)]">
+                Demo
+              </span>
+            )}
+          </div>
           {demoMode ? (
-            <div className="flex items-center gap-2 px-1 py-0.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-th-accent">
-                <span className="text-xs font-bold text-th-text-inverse">
+            <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-[var(--accent-primary-muted)] border border-[var(--border-accent)]">
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-gradient-to-br from-[#9D97F4] to-[#3D7FFC]">
+                <span className="text-[11px] font-bold text-white">
                   {(state.brand.brandName || "AE").slice(0, 2).toUpperCase()}
                 </span>
               </div>
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-semibold text-th-text">
+                <div className="truncate text-xs font-semibold text-white">
                   {state.brand.brandName || "AEO Tracker"}
                 </div>
-                <div className="text-xs text-th-text-muted">Demo workspace</div>
+                <div className="text-[10px] text-[var(--text-tertiary)]">Read-only demo</div>
               </div>
             </div>
           ) : (
           <>
           <button
             onClick={() => setShowWsPicker(!showWsPicker)}
-            className="flex w-full items-center gap-2 rounded-lg px-1 py-0.5 text-left hover:bg-th-card-hover transition-colors"
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-white/5 transition-colors border border-transparent hover:border-[var(--border-subtle)]"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-th-accent">
-              <span className="text-xs font-bold text-th-text-inverse">
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-gradient-to-br from-[#9D97F4] to-[#3D7FFC] shrink-0">
+              <span className="text-[11px] font-bold text-white">
                 {(state.brand.brandName || "AE").slice(0, 2).toUpperCase()}
               </span>
             </div>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-semibold text-th-text">
+              <div className="truncate text-xs font-semibold text-white">
                 {state.brand.brandName || "AEO Tracker"}
               </div>
               {state.brand.website && (
-                <div className="truncate text-xs text-th-text-muted">{state.brand.website.replace(/^https?:\/\//, "")}</div>
+                <div className="truncate text-[10px] text-[var(--text-tertiary)]">{state.brand.website.replace(/^https?:\/\//, "")}</div>
               )}
             </div>
-            <span className="text-xs text-th-text-muted">{showWsPicker ? "▲" : "▼"}</span>
+            <span className="text-[10px] text-[var(--text-disabled)]">{showWsPicker ? "▲" : "▼"}</span>
           </button>
 
           {/* Workspace dropdown */}
           {showWsPicker && (
-            <div className="mt-2 rounded-lg border border-th-border bg-th-card p-2 shadow-lg">
-              <div className="mb-2 text-xs font-medium text-th-text-muted uppercase tracking-wider">Workspaces</div>
-              <div className="max-h-[200px] space-y-1 overflow-auto">
+            <div className="mt-2 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-2 shadow-xl">
+              <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-disabled)]">Workspaces</div>
+              <div className="max-h-[200px] space-y-0.5 overflow-auto">
                 {workspaces.map((ws) => (
                   <div key={ws.id} className="flex items-center gap-1">
                     <button
                       onClick={() => switchWorkspace(ws.id)}
-                      className={`flex-1 rounded-md px-2 py-1.5 text-left text-sm transition-colors ${
+                      className={`flex-1 rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${
                         ws.id === activeWsId
-                          ? "bg-th-accent-soft text-th-text-accent font-medium"
-                          : "text-th-text-secondary hover:bg-th-card-hover"
+                          ? "bg-[var(--accent-primary-muted)] text-white font-medium border border-[var(--border-accent)]"
+                          : "text-[var(--text-secondary)] hover:bg-white/5"
                       }`}
                     >
                       {ws.brandName || "Untitled"}
@@ -1370,7 +1383,7 @@ Now analyze all ${competitorList.length} competitors:`,
                     {workspaces.length > 1 && (
                       <button
                         onClick={() => deleteWorkspace(ws.id)}
-                        className="rounded p-1 text-xs text-th-text-muted hover:text-th-danger hover:bg-th-danger-soft"
+                        className="rounded p-1 text-[10px] text-[var(--text-disabled)] hover:text-[var(--accent-error)] hover:bg-[var(--accent-error-muted)]"
                         title="Delete workspace"
                       >
                         ✕
@@ -1384,9 +1397,9 @@ Now analyze all ${competitorList.length} competitors:`,
                   const name = window.prompt("Brand / workspace name:");
                   if (name?.trim()) createWorkspace(name.trim());
                 }}
-                className="mt-2 flex w-full items-center gap-1.5 rounded-md border border-dashed border-th-border px-2 py-1.5 text-sm text-th-text-accent hover:bg-th-accent-soft transition-colors"
+                className="mt-2 flex w-full items-center gap-1.5 rounded-lg border border-dashed border-[var(--border-accent)] px-2 py-1.5 text-xs text-[var(--accent-primary)] hover:bg-[var(--accent-primary-muted)] transition-colors"
               >
-                <span className="text-base">+</span> New Brand
+                <span>+</span> New Brand
               </button>
             </div>
           )}
@@ -1402,32 +1415,27 @@ Now analyze all ${competitorList.length} competitors:`,
             return (
               <div key={tab}>
                 {isSettings && (
-                  <div className="mb-1 px-2 text-xs font-medium uppercase tracking-wider text-th-text-muted">
+                  <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-disabled)]">
                     Setup
                   </div>
                 )}
                 <button
                   title={tabMeta[tab].tooltip}
                   onClick={() => setActiveTab(tab)}
-                  className={`group mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors ${
-                    active
-                      ? "bg-th-accent-soft text-th-text font-medium"
-                      : "text-th-text-secondary hover:bg-th-card-hover hover:text-th-text"
-                  }`}
-                  style={active ? { boxShadow: "inset 3px 0 0 var(--th-accent)" } : undefined}
+                  className={`bd-nav-item mb-0.5 ${active ? "active" : ""}`}
                 >
-                  <span className={active ? "text-th-text-accent" : "text-th-text-muted group-hover:text-th-text-secondary"}>
+                  <span className={`shrink-0 bd-nav-icon ${active ? "text-[var(--accent-primary)]" : "text-[var(--text-disabled)]"}`}>
                     {tabIcons[tab]}
                   </span>
-                  {tabMeta[tab].title}
+                  <span className="truncate">{tabMeta[tab].title}</span>
                   {tab === "Automation" && unreadAlertCount > 0 && (
-                    <span className="ml-auto rounded-full bg-th-danger px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+                    <span className="ml-auto rounded-full bg-[var(--accent-error)] px-1.5 py-0.5 text-[9px] font-bold leading-none text-white">
                       {unreadAlertCount}
                     </span>
                   )}
                 </button>
                 {isSettings && (
-                  <div className="mb-1 mt-2 border-t border-th-border pt-2 px-2 text-xs font-medium uppercase tracking-wider text-th-text-muted">
+                  <div className="mb-1 mt-2 border-t border-[var(--border-subtle)] pt-2 px-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-disabled)]">
                     Pillars
                   </div>
                 )}
@@ -1437,37 +1445,37 @@ Now analyze all ${competitorList.length} competitors:`,
         </nav>
 
         {/* Bright Data CTA */}
-        <div className="border-t border-th-border px-3 py-3">
+        <div className="border-t border-[var(--border-subtle)] px-3 py-3">
           <a
             href="https://brightdata.com/?utm_source=geo-tracker-os"
             target="_blank"
             rel="noopener noreferrer"
-            className="group flex flex-col items-center gap-2 rounded-xl bg-gradient-to-br from-[#1a6dff] via-[#3b82f6] to-[#6366f1] px-4 py-4 shadow-lg transition-all hover:shadow-xl hover:brightness-110"
+            className="group flex items-center gap-3 rounded-xl border border-[var(--border-accent)] bg-[var(--accent-primary-muted)] px-3 py-3 transition-all hover:bg-[rgba(61,127,252,0.18)] hover:border-[rgba(61,127,252,0.5)] hover:shadow-[var(--shadow-glow-primary)]"
           >
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#9D97F4] via-[#3D7FFC] to-[#15C1E6]">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
             </div>
-            <div className="text-center">
-              <div className="text-sm font-bold text-white">Powered by Bright Data</div>
-              <div className="mt-0.5 text-xs text-white/70">Web data infrastructure for AI</div>
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-semibold text-white">
+                <span className="text-white">bright</span>
+                <span className="text-[var(--accent-primary)]">data</span>
+              </div>
+              <div className="text-[10px] text-[var(--text-tertiary)]">Web data infrastructure</div>
             </div>
-            <div className="flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-1.5 text-xs font-medium text-white transition-colors group-hover:bg-white/25">
-              Learn more
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-            </div>
+            <svg className="shrink-0 text-[var(--text-tertiary)] group-hover:text-[var(--accent-primary)] transition-colors" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
           </a>
         </div>
 
         {/* Footer info */}
-        <div className="border-t border-th-border px-4 py-2 text-center text-xs leading-relaxed text-th-text-muted">
+        <div className="border-t border-[var(--border-subtle)] px-4 py-2 text-center text-[10px] leading-relaxed text-[var(--text-disabled)]">
           <div>{demoMode ? "Read-only demo" : `Local-first · ${workspaces.length} workspace${workspaces.length > 1 ? "s" : ""}`}</div>
-          <div className="mt-1">
+          <div className="mt-0.5">
             Built by{" "}
             <a
               href="https://www.linkedin.com/in/daniel-shashko/"
               target="_blank"
               rel="noopener noreferrer"
-              className="font-medium text-th-text-accent hover:underline"
+              className="text-[var(--accent-primary)] hover:underline"
             >
               Daniel Shashko
             </a>
@@ -1476,18 +1484,19 @@ Now analyze all ${competitorList.length} competitors:`,
       </aside>
 
       {/* ── Main content ───────────────────────────────────── */}
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="relative z-10 flex flex-1 flex-col overflow-hidden">
         {/* Demo banner */}
         {demoMode && (
-          <div className="flex shrink-0 items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-2 text-sm font-medium text-white shadow-sm">
-            <span>🎯</span>
-            <span>You&apos;re viewing a read-only demo — data is pre-loaded and API calls are disabled</span>
+          <div className="flex shrink-0 items-center justify-center gap-2 border-b border-[var(--border-accent)] bg-[var(--accent-primary-muted)] px-4 py-2 text-xs font-medium text-[var(--accent-primary)]">
+            <div className="bd-dot-live" />
+            <span>Read-only demo — data is pre-loaded and API calls are disabled</span>
           </div>
         )}
+
         {/* Toolbar */}
-        <header className="flex shrink-0 items-center gap-3 border-b border-th-border bg-th-card px-5 py-2.5">
-          <h1 className="mr-auto text-base font-semibold text-th-text">{tabMeta[activeTab].title}</h1>
-          <label className="text-sm text-th-text-muted">Models</label>
+        <header className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]/80 px-5 py-2.5" style={{ backdropFilter: "blur(12px)" }}>
+          <h1 className="mr-auto text-sm font-semibold text-white">{tabMeta[activeTab].title}</h1>
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-disabled)]">Models</span>
           <div className="flex flex-wrap items-center gap-1">
             {ALL_PROVIDERS.map((p) => {
               const active = state.activeProviders.includes(p);
@@ -1503,10 +1512,10 @@ Now analyze all ${competitorList.length} competitors:`,
                       return { ...prev, activeProviders: next, provider: next[0] };
                     })
                   }
-                  className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+                  className={`rounded-md px-2 py-0.5 text-[11px] font-medium transition-all duration-150 ${
                     active
-                      ? "bg-th-accent text-th-text-inverse"
-                      : "bg-th-card-alt text-th-text-muted hover:bg-th-card-hover hover:text-th-text-secondary"
+                      ? "bg-gradient-to-r from-[#9D97F4] via-[#3D7FFC] to-[#15C1E6] text-white shadow-[0_2px_8px_rgba(61,127,252,0.3)]"
+                      : "bg-white/5 text-[var(--text-tertiary)] border border-[var(--border-subtle)] hover:bg-white/8 hover:text-[var(--text-secondary)]"
                   }`}
                   title={active ? `Deselect ${PROVIDER_LABELS[p]}` : `Select ${PROVIDER_LABELS[p]}`}
                 >
@@ -1521,31 +1530,44 @@ Now analyze all ${competitorList.length} competitors:`,
                   activeProviders: prev.activeProviders.length === ALL_PROVIDERS.length ? [prev.provider] : [...ALL_PROVIDERS],
                 }))
               }
-              className="ml-1 rounded-md border border-th-border px-2 py-1 text-xs text-th-text-muted hover:bg-th-card-hover hover:text-th-text-secondary"
+              className="ml-0.5 rounded-md border border-[var(--border-default)] px-2 py-0.5 text-[11px] text-[var(--text-tertiary)] hover:bg-white/5 hover:text-[var(--text-secondary)] transition-colors"
               title={state.activeProviders.length === ALL_PROVIDERS.length ? "Select only one" : "Select all models"}
             >
               {state.activeProviders.length === ALL_PROVIDERS.length ? "1" : "All"}
             </button>
           </div>
 
-          {/* Theme toggle */}
-          <button
-            onClick={cycleTheme}
-            className="rounded-md border border-th-border px-2 py-1 text-sm hover:bg-th-card-hover transition-colors"
-            title={`Theme: ${theme}`}
-          >
-            {themeIcon}
-          </button>
-
-          <span className={`rounded-md px-2.5 py-1 text-xs ${busy ? "animate-pulse bg-th-accent-soft text-th-text-accent" : "bg-th-card-alt text-th-text-muted"}`}>
+          {/* Status chip */}
+          <span className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] transition-all ${
+            busy
+              ? "bg-[var(--accent-primary-muted)] text-[var(--accent-primary)] border border-[var(--border-accent)]"
+              : "bg-white/5 text-[var(--text-tertiary)] border border-[var(--border-subtle)]"
+          }`}>
+            {busy && <span className="bd-dot-live" style={{ width: 6, height: 6 }} />}
             {message || "Ready"}
           </span>
         </header>
 
         {/* Scrollable body */}
-        <main className="flex-1 overflow-y-auto bg-th-bg px-5 py-4">
+        <main className="flex-1 overflow-y-auto px-5 py-4" style={{ background: "transparent" }}>
+          {/* Brand not configured warning */}
+          {!demoMode && state.runs.length > 0 && !state.brand.brandName.trim() && (
+            <div className="mb-4 flex items-center gap-3 rounded-xl border border-[var(--accent-error-muted)] bg-[var(--accent-error-muted)] px-4 py-3 text-sm text-[var(--accent-error)]">
+              <span className="text-base">⚠️</span>
+              <span>
+                <strong>Brand name not set.</strong> Visibility scores and brand mention detection will be 0 until you configure your brand in{" "}
+                <button
+                  onClick={() => setActiveTab("Project Settings")}
+                  className="underline hover:no-underline font-semibold"
+                >
+                  Project Settings
+                </button>.
+              </span>
+            </div>
+          )}
+
           {/* KPI strip */}
-          <section className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
+          <section className="mb-4 grid grid-cols-2 gap-2.5 lg:grid-cols-3 xl:grid-cols-6">
             <KpiCard label="Total Runs" value={state.runs.length} />
             <KpiCard
               label="Avg Visibility"
@@ -1577,11 +1599,11 @@ Now analyze all ${competitorList.length} competitors:`,
 
           {/* ── Movers strip ── */}
           {movers.length > 0 && (
-            <section className="mb-4 rounded-xl border border-th-border bg-th-card p-4">
+            <section className="mb-4 rounded-xl border border-[var(--border-default)] bg-[var(--surface-card)] p-4" style={{ backdropFilter: "blur(8px)" }}>
               <div className="mb-3 flex items-center gap-2">
-                <span className="text-base">📊</span>
-                <h3 className="text-sm font-semibold text-th-text">Top Movers</h3>
-                <span className="text-xs text-th-text-muted">Biggest visibility changes between runs</span>
+                <span className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--accent-primary-muted)] text-sm">📊</span>
+                <h3 className="text-sm font-semibold text-white">Top Movers</h3>
+                <span className="text-xs text-[var(--text-tertiary)]">Biggest visibility changes between runs</span>
               </div>
               <div className="flex flex-wrap gap-2">
                 {movers.map((m, i) => {
@@ -1591,18 +1613,18 @@ Now analyze all ${competitorList.length} competitors:`,
                       key={`${m.prompt.slice(0, 20)}-${m.provider}-${i}`}
                       className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${
                         up
-                          ? "border-th-success/30 bg-th-success-soft"
-                          : "border-th-danger/30 bg-th-danger-soft"
+                          ? "border-[var(--accent-success-muted)] bg-[var(--accent-success-muted)]"
+                          : "border-[var(--accent-error-muted)] bg-[var(--accent-error-muted)]"
                       }`}
                     >
-                      <span className={`text-lg font-bold ${up ? "text-th-success" : "text-th-danger"}`}>
+                      <span className={`text-base font-bold ${up ? "text-[var(--accent-success)]" : "text-[var(--accent-error)]"}`}>
                         {up ? "↑" : "↓"}{Math.abs(m.delta)}
                       </span>
                       <div className="min-w-0">
-                        <div className="truncate text-xs font-medium text-th-text" style={{ maxWidth: "180px" }}>
+                        <div className="truncate text-xs font-medium text-white" style={{ maxWidth: "180px" }}>
                           {m.prompt.length > 50 ? m.prompt.slice(0, 47) + "…" : m.prompt}
                         </div>
-                        <div className="text-xs text-th-text-muted">
+                        <div className="text-[10px] text-[var(--text-tertiary)]">
                           {PROVIDER_LABELS[m.provider]} · {m.previousScore}→{m.currentScore}
                         </div>
                       </div>
@@ -1615,12 +1637,12 @@ Now analyze all ${competitorList.length} competitors:`,
 
           {/* Scoring explanation */}
           {showScoreInfo && (
-            <section className="mb-4 rounded-xl border border-th-border bg-th-card p-4">
+            <section className="mb-4 rounded-xl border border-[var(--border-default)] bg-[var(--surface-card)] p-4" style={{ backdropFilter: "blur(8px)" }}>
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-base font-semibold text-th-text">How Visibility Scoring Works</h3>
-                <button onClick={() => setShowScoreInfo(false)} className="text-th-text-muted hover:text-th-text text-lg">✕</button>
+                <h3 className="text-sm font-semibold text-white">How Visibility Scoring Works</h3>
+                <button onClick={() => setShowScoreInfo(false)} className="text-[var(--text-disabled)] hover:text-white text-base transition-colors">✕</button>
               </div>
-              <p className="text-sm text-th-text-secondary mb-3">
+              <p className="text-xs text-[var(--text-secondary)] mb-3">
                 The visibility score (0–100) measures how prominently your brand appears in AI model responses. Each factor contributes points:
               </p>
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -1635,10 +1657,12 @@ Now analyze all ${competitorList.length} competitors:`,
           )}
 
           {/* Active tab panel */}
-          <section className="rounded-xl border border-th-border bg-th-card p-5 shadow-sm">{renderActiveTab()}</section>
-          <section className="mt-3 rounded-lg border border-th-border bg-th-card px-4 py-3">
-            <div className="text-xs uppercase tracking-wider font-medium text-th-text-muted">What this tab does</div>
-            <p className="mt-1 text-sm leading-relaxed text-th-text-secondary">{tabMeta[activeTab].details}</p>
+          <section className="rounded-xl border border-[var(--border-default)] p-5" style={{ background: "var(--surface-card)", backdropFilter: "blur(8px)" }}>
+            {renderActiveTab()}
+          </section>
+          <section className="mt-3 rounded-lg border border-[var(--border-subtle)] px-4 py-3" style={{ background: "var(--surface-card)" }}>
+            <div className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-disabled)]">What this tab does</div>
+            <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">{tabMeta[activeTab].details}</p>
           </section>
         </main>
       </div>
@@ -1649,13 +1673,13 @@ Now analyze all ${competitorList.length} competitors:`,
 /* ── Score Factor Card ────────────────────────────────────────── */
 function ScoreFactorCard({ emoji, label, points, desc }: { emoji: string; label: string; points: string; desc: string }) {
   return (
-    <div className="rounded-lg border border-th-border bg-th-card-alt px-3 py-2.5">
+    <div className="rounded-lg border border-[var(--border-subtle)] px-3 py-2.5 transition-colors hover:border-[var(--border-default)]" style={{ background: "var(--bg-elevated)" }}>
       <div className="flex items-center gap-2 mb-1">
-        <span className="text-base">{emoji}</span>
-        <span className="text-sm font-medium text-th-text">{label}</span>
-        <span className="ml-auto text-sm font-semibold text-th-accent">{points}</span>
+        <span className="text-sm">{emoji}</span>
+        <span className="text-xs font-medium text-white">{label}</span>
+        <span className="ml-auto text-xs font-semibold text-[var(--accent-primary)]">{points}</span>
       </div>
-      <p className="text-xs text-th-text-muted leading-relaxed">{desc}</p>
+      <p className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">{desc}</p>
     </div>
   );
 }
@@ -1663,17 +1687,17 @@ function ScoreFactorCard({ emoji, label, points, desc }: { emoji: string; label:
 /* ── Compact KPI Card ─────────────────────────────────────────── */
 function KpiCard({ label, value, small, delta, onInfoClick }: { label: string; value: string | number; small?: boolean; delta?: number | null; onInfoClick?: () => void }) {
   return (
-    <div className="rounded-xl border border-th-border bg-th-card px-4 py-3 shadow-sm">
+    <div className="bd-kpi group">
       <div className="flex items-center gap-1">
-        <div className="text-xs font-medium uppercase tracking-wider text-th-text-muted">{label}</div>
+        <div className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-disabled)]">{label}</div>
         {onInfoClick && (
-          <button onClick={onInfoClick} className="text-th-text-muted hover:text-th-text-accent text-xs" title="How is this calculated?">ⓘ</button>
+          <button onClick={onInfoClick} className="text-[var(--text-disabled)] hover:text-[var(--accent-primary)] text-xs transition-colors" title="How is this calculated?">ⓘ</button>
         )}
       </div>
-      <div className={`mt-1 flex items-center gap-1.5 font-semibold text-th-text ${small ? "text-base" : "text-xl"}`}>
+      <div className={`mt-1.5 flex items-center gap-1.5 font-semibold text-white ${small ? "text-sm" : "text-xl"}`}>
         {value}
         {delta != null && delta !== 0 && (
-          <span className={`text-xs font-bold ${delta > 0 ? "text-th-success" : "text-th-danger"}`}>
+          <span className={`text-[10px] font-bold ${delta > 0 ? "text-[var(--accent-success)]" : "text-[var(--accent-error)]"}`}>
             {delta > 0 ? "↑" : "↓"}{Math.abs(delta)}
           </span>
         )}

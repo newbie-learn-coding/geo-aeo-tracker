@@ -1,6 +1,12 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { DM_Sans, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+
+const dmSans = DM_Sans({
+  variable: "--font-dm-sans",
+  subsets: ["latin"],
+  display: "swap",
+});
 
 const inter = Inter({
   variable: "--font-inter",
@@ -15,12 +21,12 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "GEO/AEO Tracker",
-  description: "BYOK AEO/GEO intelligence dashboard with local-first persistence",
+  title: "GEO/AEO Tracker — Powered by Bright Data",
+  description: "AI brand visibility intelligence dashboard with local-first persistence",
 };
 
-/** Inline script to apply theme before first paint — prevents flash */
-const themeScript = `(function(){try{var t=localStorage.getItem('sovereign-theme');if(t==='dark'||(t!=='light'&&window.matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}})()`;
+/** Apply dark theme before first paint — prevents flash */
+const themeScript = `(function(){try{var t=localStorage.getItem('sovereign-theme');if(t==='light'){document.documentElement.classList.add('light')}else{/* default to dark */document.documentElement.classList.remove('light')}}catch(e){}})()`;
 
 export default function RootLayout({
   children,
@@ -34,7 +40,7 @@ export default function RootLayout({
       </head>
       <body
         suppressHydrationWarning
-        className={`${inter.variable} ${jetbrainsMono.variable} antialiased`}
+        className={`${dmSans.variable} ${inter.variable} ${jetbrainsMono.variable} antialiased`}
       >
         {children}
       </body>

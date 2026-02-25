@@ -400,14 +400,14 @@ export function ReputationSourcesTab({
           <InsightMini label="Brand Mentioned" value={`${insights.brandMentioned}/${runs.length}`} />
           <InsightMini
             label="Positive"
-            value={insights.sentiments.positive}
-            sub={`${Math.round((insights.sentiments.positive / runs.length) * 100)}%`}
+            value={`${Math.round((insights.sentiments.positive / runs.length) * 100)}%`}
+            sub={`${insights.sentiments.positive} runs`}
             color="text-th-success"
           />
           <InsightMini
             label="Negative"
-            value={insights.sentiments.negative}
-            sub={`${Math.round((insights.sentiments.negative / runs.length) * 100)}%`}
+            value={`${Math.round((insights.sentiments.negative / runs.length) * 100)}%`}
+            sub={`${insights.sentiments.negative} runs`}
             color="text-th-danger"
           />
           <InsightMini label="Sources Cited" value={insights.totalSources} />

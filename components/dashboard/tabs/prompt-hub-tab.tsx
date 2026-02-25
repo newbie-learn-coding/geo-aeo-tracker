@@ -24,8 +24,11 @@ export function PromptHubTab({
   const [newPrompt, setNewPrompt] = useState("");
 
   const interpolateBrand = (value: string) => {
-    if (!brandName?.trim()) return value;
-    return value.replaceAll("{brand}", brandName.trim());
+    return value.replace(/\{([^}]+)\}/g, (_, token: string) => {
+      if (token.toLowerCase() === "brand") return brandName?.trim() || token;
+      // f-string style: {Monday} → "Monday"
+      return token;
+    });
   };
 
   return (
