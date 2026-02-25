@@ -383,22 +383,24 @@ body {
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 0.5rem 0.625rem;
+  padding: 0.4375rem 0.625rem;
   border-radius: var(--radius-lg);
   font-size: 0.8125rem;
   color: var(--text-tertiary);
   text-align: left;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  border: 1px solid transparent;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 }
 .bd-nav-item:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.04);
   color: var(--text-secondary);
+  border-color: rgba(255, 255, 255, 0.06);
 }
 .bd-nav-item.active {
-  background: rgba(61, 127, 252, 0.12);
+  background: rgba(61, 127, 252, 0.1);
   color: var(--text-primary);
   font-weight: 500;
-  box-shadow: inset 3px 0 0 var(--accent-primary);
+  border-color: rgba(61, 127, 252, 0.25);
 }
 .bd-nav-item.active .bd-nav-icon {
   color: var(--accent-primary);
