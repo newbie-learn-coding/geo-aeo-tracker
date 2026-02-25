@@ -101,17 +101,6 @@ const sections: DocSection[] = [
     ],
   },
   {
-    id: "battlecards",
-    title: "Competitor Battlecards",
-    icon: "🏆",
-    content: [
-      "Enter competitor names (comma-separated) and generate AI-powered battlecards.",
-      "Each battlecard includes: sentiment, summary, strengths, weaknesses, pricing insights, AI visibility notes, and key differentiators.",
-      "Battlecards are color-coded by sentiment (green = positive, yellow = neutral, red = negative).",
-      "Use these to understand how AI models perceive your competitors relative to your brand.",
-    ],
-  },
-  {
     id: "aeo-audit",
     title: "AEO Audit",
     icon: "✅",

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import axios from "axios";
 
 const bodySchema = z.object({
   url: z.string().url(),
@@ -23,7 +24,36 @@ type Check = {
   detail: string;
 };
 
-async function tryFetch(url: string): Promise<{ ok: boolean; text: string; status: number }> {
+/**
+ * Fetch a URL via Bright Data Web Unlocker (bypasses bot protection).
+ * Falls back to a plain fetch if the zone is not configured.
+ * Use useBrightData=false for auxiliary files (robots.txt, sitemaps) that don't need unlocking.
+ */
+async function tryFetch(url: string, useBrightData = true): Promise<{ ok: boolean; text: string; status: number; via: "brightdata" | "fetch" }> {
+  const apiKey = process.env.BRIGHT_DATA_KEY;
+  const zone = process.env.BRIGHTDATA_UNLOCKER_ZONE;
+
+  if (useBrightData && apiKey && zone) {
+    try {
+      const response = await axios.post<string>(
+        "https://api.brightdata.com/request",
+        { url, zone, format: "raw" },
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          responseType: "text",
+          timeout: 30_000,
+        },
+      );
+      return { ok: true, text: response.data, status: response.status, via: "brightdata" };
+    } catch {
+      // Fall through to plain fetch
+    }
+  }
+
+  // Plain fetch (used directly for aux files, or as fallback)
   try {
     const res = await fetch(url, {
       headers: { "User-Agent": "GEO-AEO-Tracker/1.0" },
@@ -31,9 +61,9 @@ async function tryFetch(url: string): Promise<{ ok: boolean; text: string; statu
       redirect: "follow",
     });
     const text = res.ok ? await res.text() : "";
-    return { ok: res.ok, text, status: res.status };
+    return { ok: res.ok, text, status: res.status, via: "fetch" };
   } catch {
-    return { ok: false, text: "", status: 0 };
+    return { ok: false, text: "", status: 0, via: "fetch" };
   }
 }
 
@@ -54,12 +84,12 @@ export async function POST(req: NextRequest) {
     const html = pageRes.text;
     const plain = stripHtml(html);
 
-    // ── Parallel fetches ───────────────────────────────
+    // ── Parallel fetches (plain fetch — no unlocking needed for static files) ──
     const [llmsRes, llmsFullRes, robotsRes, sitemapRes] = await Promise.all([
-      tryFetch(`${target.origin}/llms.txt`),
-      tryFetch(`${target.origin}/llms-full.txt`),
-      tryFetch(`${target.origin}/robots.txt`),
-      tryFetch(`${target.origin}/sitemap.xml`),
+      tryFetch(`${target.origin}/llms.txt`, false),
+      tryFetch(`${target.origin}/llms-full.txt`, false),
+      tryFetch(`${target.origin}/robots.txt`, false),
+      tryFetch(`${target.origin}/sitemap.xml`, false),
     ]);
 
     // ═══════════════════════════════════════════════════

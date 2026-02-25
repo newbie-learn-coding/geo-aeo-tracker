@@ -5,7 +5,6 @@ import { loadSovereignValue, saveSovereignValue, clearSovereignStore } from "@/l
 import { DEMO_STATE } from "@/lib/demo-data";
 import { AeoAuditTab } from "@/components/dashboard/tabs/aeo-audit-tab";
 import { AutomationTab } from "@/components/dashboard/tabs/automation-tab-v2";
-import { BattlecardsTab } from "@/components/dashboard/tabs/battlecards-tab";
 import { CitationOpportunitiesTab } from "@/components/dashboard/tabs/citation-opportunities-tab";
 import { NicheExplorerTab } from "@/components/dashboard/tabs/niche-explorer-tab";
 import { FanOutTab } from "@/components/dashboard/tabs/fan-out-tab";
@@ -15,7 +14,7 @@ import { PromptHubTab } from "@/components/dashboard/tabs/prompt-hub-tab";
 import { ReputationSourcesTab } from "@/components/dashboard/tabs/reputation-sources-tab";
 import { VisibilityAnalyticsTab } from "@/components/dashboard/tabs/visibility-analytics-tab";
 import { DocumentationTab } from "@/components/dashboard/tabs/documentation-tab";
-import type { AppState, Battlecard, DriftAlert, Provider, RunDelta, ScheduleInterval, ScrapeRun, TabKey, Workspace } from "@/components/dashboard/types";
+import type { AppState, DriftAlert, Provider, RunDelta, ScrapeRun, TabKey, Workspace } from "@/components/dashboard/types";
 import { ALL_PROVIDERS, PROVIDER_LABELS, SCHEDULE_OPTIONS, tabs } from "@/components/dashboard/types";
 
 /* ── Inline SVG icon helpers (16×16) ─────────────────────────────── */
@@ -67,14 +66,6 @@ const tabIcons: Record<TabKey, ReactNode> = {
   Automation: (
     <Icon>
       <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-    </Icon>
-  ),
-  "Competitor Battlecards": (
-    <Icon>
-      <rect width="7" height="9" x="3" y="3" rx="1" />
-      <rect width="7" height="5" x="14" y="3" rx="1" />
-      <rect width="7" height="9" x="14" y="12" rx="1" />
-      <rect width="7" height="5" x="3" y="16" rx="1" />
     </Icon>
   ),
   Responses: (
@@ -155,7 +146,6 @@ const defaultState: AppState = {
   githubWorkflow:
     "name: sovereign-aeo\non:\n  schedule:\n    - cron: '0 */6 * * *'\njobs:\n  track:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm ci && npm run test:scraper",
   competitors: "profound.com, otterly.ai, peec.ai",
-  battlecards: [],
   runs: [],
   auditUrl: "https://example.com",
   auditReport: null,
@@ -195,12 +185,6 @@ const tabMeta: Record<TabKey, { title: string; tooltip: string; details: string 
     tooltip: "Configure recurring runs via cron/workflows.",
     details:
       "Store deployment-ready scheduling templates for Vercel Cron and GitHub Actions so tracking can run automatically on a repeat cadence.",
-  },
-  "Competitor Battlecards": {
-    title: "Competitors",
-    tooltip: "Compare model sentiment vs competitors.",
-    details:
-      "Generate side-by-side competitor summaries and sentiment snapshots. See which competitors are mentioned alongside your brand and identify gaps.",
   },
   Responses: {
     title: "Responses",
@@ -998,155 +982,6 @@ Requirements:
     }
   }
 
-  async function runBattlecards() {
-    if (demoMode) { setMessage("Demo mode — API calls are disabled"); return; }
-    setBusy(true);
-    setMessage("Building competitor battlecards...");
-
-    try {
-      const competitorList = state.competitors
-        .split(",")
-        .map((c) => c.trim())
-        .filter(Boolean);
-
-      if (competitorList.length === 0) {
-        setMessage("Add at least one competitor first.");
-        setBusy(false);
-        return;
-      }
-
-      const exampleJson = JSON.stringify([
-        {
-          competitor: "example.com",
-          sentiment: "positive",
-          summary: "Strong brand presence with frequent citations.",
-          sections: [
-            { heading: "Strengths", points: ["High domain authority", "Frequent AI citations"] },
-            { heading: "Weaknesses", points: ["Limited product range"] },
-            { heading: "Pricing", points: ["Premium tier: $99/mo", "Free plan available"] },
-            { heading: "AI Visibility", points: ["Mentioned in 8/10 tested prompts"] },
-          ],
-        },
-      ]);
-
-      const response = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: `${brandCtx}You are an AI search visibility analyst. Analyze how AI models (ChatGPT, Perplexity, Gemini, Copilot, Google AI, Grok) likely perceive each of these competitors: ${competitorList.join(", ")}.
-
-For EACH competitor, provide a JSON object with:
-- "competitor": the name exactly as given
-- "sentiment": one of "positive", "neutral", or "negative" based on likely AI recommendation tone
-- "summary": 2-3 sentences overview
-- "sections": an array of objects with "heading" (string) and "points" (string[]) covering:
-  * "Strengths" — what the competitor does well in AI visibility
-  * "Weaknesses" — gaps or disadvantages
-  * "Pricing Insights" — known pricing tiers or cost perception
-  * "AI Visibility" — how often/prominently they appear in AI responses
-  * "Key Differentiators" — what sets them apart
-
-Return ONLY a valid JSON array. No markdown fences. No extra text. Example format:
-${exampleJson}
-
-Now analyze all ${competitorList.length} competitors:`,
-          maxTokens: Math.max(2000, Math.min(4096, 500 * competitorList.length)),
-          temperature: 0.3,
-          skipCache: true,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Battlecard generation failed");
-
-      const text = String(data.text ?? "").trim();
-
-      let parsed: Battlecard[] | null = null;
-
-      const normalizeBattlecards = (arr: unknown): Battlecard[] => {
-        if (!Array.isArray(arr)) return [];
-        const mapped = arr
-          .map((item) => {
-            const record = (item ?? {}) as Record<string, unknown>;
-            const competitor = String(record.competitor ?? "").trim();
-            if (!competitor) return null;
-            const sentimentRaw = String(record.sentiment ?? "neutral").toLowerCase();
-            const sentiment = (["positive", "neutral", "negative"].includes(sentimentRaw)
-              ? sentimentRaw
-              : "neutral") as "positive" | "neutral" | "negative";
-            const summary = String(record.summary ?? record.analysis ?? "No summary provided.").trim();
-            // Parse structured sections
-            const rawSections = Array.isArray(record.sections) ? record.sections : [];
-            const sections = rawSections
-              .map((s: unknown) => {
-                const sec = (s ?? {}) as Record<string, unknown>;
-                const heading = String(sec.heading ?? "").trim();
-                const points = Array.isArray(sec.points) ? sec.points.map((p: unknown) => String(p).trim()).filter(Boolean) : [];
-                return heading && points.length > 0 ? { heading, points } : null;
-              })
-              .filter((s): s is { heading: string; points: string[] } => s !== null);
-            return { competitor, sentiment, summary, sections: sections.length > 0 ? sections : undefined } as Battlecard;
-          });
-        return mapped.filter((entry): entry is Battlecard => entry !== null);
-      };
-
-      const parseCandidate = (candidate: string): Battlecard[] => {
-        try {
-          return normalizeBattlecards(JSON.parse(candidate));
-        } catch {
-          return [];
-        }
-      };
-
-      const direct = parseCandidate(text);
-      if (direct.length > 0) {
-        parsed = direct;
-      }
-
-      if (!parsed) {
-        const noFence = text.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
-        const fromNoFence = parseCandidate(noFence);
-        if (fromNoFence.length > 0) parsed = fromNoFence;
-      }
-
-      if (!parsed) {
-        const start = text.indexOf("[");
-        if (start >= 0) {
-          for (let i = text.length - 1; i > start; i -= 1) {
-            if (text[i] !== "]") continue;
-            const candidate = text.slice(start, i + 1);
-            const maybe = parseCandidate(candidate);
-            if (maybe.length > 0) {
-              parsed = maybe;
-              break;
-            }
-          }
-        }
-      }
-
-      // Fallback: use raw text split by competitor names
-      if (!parsed || parsed.length === 0) {
-        parsed = competitorList.map((name) => {
-          // Try to find a section about this competitor in the raw text
-          const namePattern = new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
-          const idx = text.search(namePattern);
-          const snippet = idx >= 0 ? text.slice(idx, idx + 300).replace(/[#*`]/g, "").trim() : "";
-          return {
-            competitor: name,
-            sentiment: "neutral" as const,
-            summary: snippet || `AI could not generate structured analysis. Raw response: ${text.slice(0, 200)}`,
-          };
-        });
-      }
-
-      setState((prev) => ({ ...prev, battlecards: parsed! }));
-      setMessage(`Battlecards ready for ${parsed!.length} competitors.`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Failed building battlecards.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function runAudit() {
     if (demoMode) { setMessage("Demo mode — API calls are disabled"); return; }
     setBusy(true);
@@ -1251,17 +1086,6 @@ Now analyze all ${competitorList.length} competitors:`,
           onRunNow={runScheduledBatch}
           onDismissAlert={dismissAlert}
           onDismissAllAlerts={dismissAllAlerts}
-        />
-      );
-    }
-
-    if (activeTab === "Competitor Battlecards") {
-      return (
-        <BattlecardsTab
-          competitors={state.competitors}
-          battlecards={state.battlecards}
-          onCompetitorsChange={(value) => setState((prev) => ({ ...prev, competitors: value }))}
-          onBuildBattlecards={runBattlecards}
         />
       );
     }

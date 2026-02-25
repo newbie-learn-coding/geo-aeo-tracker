@@ -22,20 +22,6 @@ export type ScrapeRun = {
   competitorMentions: string[];
 };
 
-/** Structured section inside a battlecard */
-type BattlecardSection = {
-  heading: string;
-  points: string[];
-};
-
-export type Battlecard = {
-  competitor: string;
-  sentiment: "positive" | "neutral" | "negative";
-  summary: string;
-  /** Structured sections: strengths, weaknesses, pricing, AI visibility, etc. */
-  sections?: BattlecardSection[];
-};
-
 export type AuditCheck = {
   id: string;
   label: string;
@@ -136,7 +122,6 @@ export type AppState = {
   cronExpr: string;
   githubWorkflow: string;
   competitors: string;
-  battlecards: Battlecard[];
   runs: ScrapeRun[];
   auditUrl: string;
   auditReport: AuditReport | null;
@@ -157,7 +142,6 @@ export const tabs = [
   "Visibility Analytics",
   "Citations",
   "Citation Opportunities",
-  "Competitor Battlecards",
   "AEO Audit",
   "Automation",
   "Documentation",
