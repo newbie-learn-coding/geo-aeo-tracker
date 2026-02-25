@@ -225,7 +225,7 @@ const tabMeta: Record<TabKey, { title: string; tooltip: string; details: string 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } = {}) {
-  const [activeTab, setActiveTab] = useState<TabKey>("Prompt Hub");
+  const [activeTab, setActiveTab] = useState<TabKey>("Project Settings");
   const [state, setState] = useState<AppState>(demoMode ? DEMO_STATE : defaultState);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(demoMode ? "Demo mode — read-only preview" : "");
