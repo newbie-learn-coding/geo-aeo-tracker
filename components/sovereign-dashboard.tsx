@@ -892,39 +892,29 @@ export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } 
   }
 
   function extractNicheQueries(payload: unknown) {
-    const data = payload as {
-      text?: unknown;
-      output?: unknown;
-      response?: unknown;
-      content?: unknown;
-    };
+    const data = payload as { text?: unknown };
+    const raw = typeof data.text === "string" ? data.text.trim() : "";
 
-    const directText = [data.text, data.output, data.response, data.content].find(
-      (value) => typeof value === "string" && value.trim().length > 0,
-    ) as string | undefined;
-
-    const raw = directText ?? "";
-    // Strip markdown fences entirely
-    const cleaned = raw.replace(/```[\w]*\n?/g, "").trim();
-
-    // Try JSON array first
-    const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
-    if (arrayMatch) {
-      try {
-        const parsed = JSON.parse(arrayMatch[0]) as unknown;
-        if (Array.isArray(parsed)) {
-          const items = parsed
+    // Structured output: parse JSON object with queries array
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const obj = parsed as Record<string, unknown>;
+        const arr = obj.queries;
+        if (Array.isArray(arr)) {
+          const items = arr
             .map((item) => (typeof item === "string" ? item.trim() : ""))
-            .filter((line) => line.length > 10)
+            .filter((line) => line.length > 5)
             .slice(0, 20);
           if (items.length > 0) return items;
         }
-      } catch {
-        // fall through to line parsing
       }
+    } catch {
+      // fall through to line parsing
     }
 
-    // Line-by-line parsing
+    // Fallback: line-by-line parsing
+    const cleaned = raw.replace(/```[\w]*\n?/g, "").trim();
     const fromLines = cleaned
       .split("\n")
       .map((line) =>
@@ -938,7 +928,7 @@ export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } 
       )
       .filter((line) => line.length > 10 && line.length < 300)
       .filter((line) => !/^(here\s+(are|is)|high[- ]intent|sure|certainly|below|the following)\b/i.test(line))
-      .filter((line) => line.includes(" ")); // must have at least 2 words
+      .filter((line) => line.includes(" "));
 
     return fromLines.slice(0, 20);
   }
@@ -958,10 +948,24 @@ export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } 
 Requirements:
 - Each query should be realistic and conversational
 - Include source-seeking phrasing like "with sources", "according to experts", etc.
-- Mix informational, comparison, and decision-stage queries
-- Return ONLY a numbered list, one query per line, no explanations`,
+- Mix informational, comparison, and decision-stage queries`,
           maxTokens: 1500,
           skipCache: true,
+          schema: {
+            name: "niche_queries",
+            schema: {
+              type: "object",
+              properties: {
+                queries: {
+                  type: "array",
+                  description: "List of high-intent search queries",
+                  items: { type: "string" },
+                },
+              },
+              required: ["queries"],
+              additionalProperties: false,
+            },
+          },
         }),
       });
       const data = await response.json();

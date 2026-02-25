@@ -8,6 +8,12 @@ const bodySchema = z.object({
   maxTokens: z.number().int().min(128).max(8192).optional(),
   temperature: z.number().min(0).max(1.5).optional(),
   skipCache: z.boolean().optional(),
+  schema: z
+    .object({
+      name: z.string(),
+      schema: z.record(z.string(), z.unknown()),
+    })
+    .optional(),
 });
 
 const cache = new Map<string, { expiresAt: number; text: string }>();
@@ -41,7 +47,7 @@ export async function POST(req: NextRequest) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "moonshotai/kimi-k2.5",
+        model: "google/gemini-3-flash-preview",
         messages: [
           {
             role: "user",
@@ -50,6 +56,16 @@ export async function POST(req: NextRequest) {
         ],
         max_tokens: parsed.maxTokens ?? 900,
         temperature: parsed.temperature ?? 0.2,
+        ...(parsed.schema && {
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: parsed.schema.name,
+              strict: true,
+              schema: parsed.schema.schema,
+            },
+          },
+        }),
       }),
     });
 
