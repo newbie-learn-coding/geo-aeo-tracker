@@ -135,10 +135,7 @@ const defaultState: AppState = {
   activeProviders: ["chatgpt"],
   prompt:
     "What is the strongest value proposition for sovereign AI analytics tools in 2026? Include sources.",
-  customPrompts: [
-    "How visible is {brand} versus competitors for enterprise AI analytics tools? Include sources.",
-    "What are the top 3 reasons to choose {brand} based on trusted sources?",
-  ],
+  customPrompts: [],
   personas: "CMO\nSEO Lead\nProduct Marketing Manager\nFounder",
   fanoutPrompts: [],
   niche: "AI SEO platform for B2B SaaS",
@@ -1361,21 +1358,6 @@ Requirements:
           </a>
         </div>
 
-        {/* Footer info */}
-        <div className="border-t border-[var(--border-subtle)] px-4 py-2 text-center text-[10px] leading-relaxed text-[var(--text-disabled)]">
-          <div>{demoMode ? "Read-only demo" : `Local-first · ${workspaces.length} workspace${workspaces.length > 1 ? "s" : ""}`}</div>
-          <div className="mt-0.5">
-            Built by{" "}
-            <a
-              href="https://www.linkedin.com/in/daniel-shashko/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[var(--accent-primary)] hover:underline"
-            >
-              Daniel Shashko
-            </a>
-          </div>
-        </div>
       </aside>
 
       {/* ── Main content ───────────────────────────────────── */}
