@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { runAiScraper } from "@/lib/server/brightdata-scraper";
-import { createJob, resolveJob, failJob } from "@/lib/server/job-store";
 import { checkAndRecordRun } from "@/lib/server/rate-limit";
+
+// Allow up to 5 minutes for the scraper to complete
+export const maxDuration = 300;
 
 const InputSchema = z.object({
   provider: z.enum([
@@ -38,26 +40,17 @@ export async function POST(req: NextRequest) {
     }
 
     const jobId = crypto.randomUUID();
+    console.log(`[trigger] Job started jobId=${jobId} provider=${parsed.provider} prompt="${parsed.prompt.slice(0, 80)}..."`);
 
-    createJob(jobId);
+    // Await the scraper — returns result directly, no polling needed
+    const result = await runAiScraper(parsed);
 
-    console.log(`[trigger] Job created jobId=${jobId} provider=${parsed.provider} prompt="${parsed.prompt.slice(0, 80)}..."`);
+    console.log(`[trigger] Job done jobId=${jobId} provider=${parsed.provider} answer.length=${result.answer.length} sources=${result.sources.length}`);
 
-    // Fire and forget — do NOT await
-    runAiScraper(parsed)
-      .then((result) => {
-        console.log(`[trigger] Job resolved jobId=${jobId} provider=${parsed.provider} answer.length=${result.answer.length} sources=${result.sources.length}`);
-        resolveJob(jobId, result);
-      })
-      .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : "Unknown error";
-        console.error(`[trigger] Job FAILED jobId=${jobId} provider=${parsed.provider} error="${message}"`);
-        failJob(jobId, message);
-      });
-
-    return NextResponse.json({ jobId, status: "pending" });
+    return NextResponse.json({ jobId, status: "ready", result });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
+    console.error(`[trigger] Job FAILED error="${message}"`);
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

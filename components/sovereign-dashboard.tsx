@@ -570,13 +570,13 @@ export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } 
     return Math.min(100, score);
   }
 
-  /** Run a single scrape against one specific provider (trigger + poll) */
+  /** Run a single scrape against one specific provider */
   async function callScrapeOne(prompt: string, provider: Provider): Promise<ScrapeRun | null> {
     if (demoMode) { setMessage("Demo mode — API calls are disabled"); return null; }
     try {
       console.log(`[scrape] callScrapeOne: START provider=${provider} prompt="${prompt.slice(0, 80)}..."`);
 
-      // Trigger — returns immediately with a jobId
+      // Trigger — waits for full scrape completion, returns result directly
       const triggerRes = await fetch(`${BASE_PATH}/api/scrape/trigger`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -592,101 +592,74 @@ export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } 
         console.error(`[scrape] callScrapeOne: Trigger FAILED provider=${provider} status=${triggerRes.status} error="${triggerData.error}"`);
         throw new Error(triggerData.error || "Trigger failed");
       }
-      const { jobId } = triggerData as { jobId: string };
-      console.log(`[scrape] callScrapeOne: Triggered provider=${provider} jobId=${jobId}`);
 
-      // Poll until ready, failed, or 90s timeout
-      const POLL_INTERVAL_MS = 2000;
-      const TIMEOUT_MS = 240_000;
-      const deadline = Date.now() + TIMEOUT_MS;
-      let pollCount = 0;
+      const { jobId, result: jobResult } = triggerData as {
+        jobId: string;
+        status: "ready";
+        result: { provider: string; prompt: string; answer: string; sources: string[]; createdAt: string };
+      };
 
-      while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-        pollCount++;
+      const { answer: answerText, sources: sourceList, provider: p, prompt: pr, createdAt } = jobResult;
+      console.log(`[scrape] callScrapeOne: READY provider=${provider} jobId=${jobId} answer.length=${answerText.length} sources=${sourceList.length}`);
 
-        const statusRes = await fetch(`${BASE_PATH}/api/scrape/status/${jobId}`);
-        const statusData = await statusRes.json() as {
-          status: "pending" | "ready" | "failed";
-          result?: { provider: string; prompt: string; answer: string; sources: string[]; createdAt: string };
-          error?: string;
-        };
+      // AI-powered analysis
+      let visibilityScore: number;
+      let sentiment: ScrapeRun["sentiment"];
+      let brandMentions: string[];
+      let competitorMentions: string[];
+      let aiAnalyzed = false;
 
-        console.log(`[scrape] callScrapeOne: Poll #${pollCount} jobId=${jobId} provider=${provider} status=${statusData.status}`);
-
-        if (statusData.status === "failed") {
-          console.error(`[scrape] callScrapeOne: Job FAILED jobId=${jobId} provider=${provider} error="${statusData.error}"`);
-          throw new Error(statusData.error || "Scrape job failed");
-        }
-
-        if (statusData.status === "ready" && statusData.result) {
-          const { answer: answerText, sources: sourceList, provider: p, prompt: pr, createdAt } = statusData.result;
-          console.log(`[scrape] callScrapeOne: READY provider=${provider} jobId=${jobId} answer.length=${answerText.length} sources=${sourceList.length}`);
-
-          // AI-powered analysis (accumulation: only new runs get analyzed)
-          let visibilityScore: number;
-          let sentiment: ScrapeRun["sentiment"];
-          let brandMentions: string[];
-          let competitorMentions: string[];
-          let aiAnalyzed = false;
-
-          try {
-            const analysisRes = await fetch(`${BASE_PATH}/api/analyze-run`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                answer: answerText,
-                brandName: state.brand.brandName,
-                brandAliases: state.brand.brandAliases,
-                brandWebsite: state.brand.website,
-                competitors: state.competitors,
-              }),
-            });
-            if (analysisRes.ok) {
-              const analysis = await analysisRes.json() as {
-                visibilityScore: number;
-                sentiment: ScrapeRun["sentiment"];
-                brandMentioned: boolean;
-                brandMentions: string[];
-                competitorMentions: string[];
-              };
-              visibilityScore = analysis.visibilityScore;
-              sentiment = analysis.sentiment;
-              brandMentions = analysis.brandMentions;
-              competitorMentions = analysis.competitorMentions;
-              aiAnalyzed = true;
-              console.log(`[scrape] callScrapeOne: AI analysis done provider=${provider} score=${visibilityScore} sentiment=${sentiment}`);
-            } else {
-              throw new Error(`analyze-run HTTP ${analysisRes.status}`);
-            }
-          } catch (analysisErr) {
-            console.warn(`[scrape] callScrapeOne: AI analysis failed, falling back to heuristics. Error:`, analysisErr instanceof Error ? analysisErr.message : analysisErr);
-            const brandTerms = getBrandTerms();
-            const competitorTerms = getCompetitorTerms();
-            visibilityScore = calcVisibilityScore(answerText, sourceList, brandTerms);
-            sentiment = detectSentiment(answerText, brandTerms);
-            brandMentions = findMentions(answerText, brandTerms);
-            competitorMentions = findMentions(answerText, competitorTerms);
-          }
-
-          return {
-            provider: p as Provider,
-            prompt: pr,
+      try {
+        const analysisRes = await fetch(`${BASE_PATH}/api/analyze-run`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
             answer: answerText,
-            sources: sourceList,
-            createdAt: createdAt || new Date().toISOString(),
-            visibilityScore,
-            sentiment,
-            brandMentions,
-            competitorMentions,
-            aiAnalyzed,
+            brandName: state.brand.brandName,
+            brandAliases: state.brand.brandAliases,
+            brandWebsite: state.brand.website,
+            competitors: state.competitors,
+          }),
+        });
+        if (analysisRes.ok) {
+          const analysis = await analysisRes.json() as {
+            visibilityScore: number;
+            sentiment: ScrapeRun["sentiment"];
+            brandMentioned: boolean;
+            brandMentions: string[];
+            competitorMentions: string[];
           };
+          visibilityScore = analysis.visibilityScore;
+          sentiment = analysis.sentiment;
+          brandMentions = analysis.brandMentions;
+          competitorMentions = analysis.competitorMentions;
+          aiAnalyzed = true;
+          console.log(`[scrape] callScrapeOne: AI analysis done provider=${provider} score=${visibilityScore} sentiment=${sentiment}`);
+        } else {
+          throw new Error(`analyze-run HTTP ${analysisRes.status}`);
         }
-        // status === "pending" → keep polling
+      } catch (analysisErr) {
+        console.warn(`[scrape] callScrapeOne: AI analysis failed, falling back to heuristics. Error:`, analysisErr instanceof Error ? analysisErr.message : analysisErr);
+        const brandTerms = getBrandTerms();
+        const competitorTerms = getCompetitorTerms();
+        visibilityScore = calcVisibilityScore(answerText, sourceList, brandTerms);
+        sentiment = detectSentiment(answerText, brandTerms);
+        brandMentions = findMentions(answerText, brandTerms);
+        competitorMentions = findMentions(answerText, competitorTerms);
       }
 
-      console.error(`[scrape] callScrapeOne: TIMED OUT provider=${provider} jobId=${jobId} after ${pollCount} polls`);
-      throw new Error("Timed out waiting for scrape result");
+      return {
+        provider: p as Provider,
+        prompt: pr,
+        answer: answerText,
+        sources: sourceList,
+        createdAt: createdAt || new Date().toISOString(),
+        visibilityScore,
+        sentiment,
+        brandMentions,
+        competitorMentions,
+        aiAnalyzed,
+      };
     } catch (err) {
       console.error(`[scrape] callScrapeOne: CAUGHT ERROR provider=${provider}`, err instanceof Error ? err.message : err);
       return null;
