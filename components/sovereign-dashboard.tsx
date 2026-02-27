@@ -1179,16 +1179,14 @@ Requirements:
             href="https://brightdata.com/?utm_source=geo-tracker-os"
             target="_blank"
             rel="noopener noreferrer"
-            className="group flex items-center gap-3 rounded-xl border border-[var(--border-accent)] bg-[var(--accent-primary-muted)] px-3 py-3 transition-all hover:bg-[rgba(61,127,252,0.18)] hover:border-[rgba(61,127,252,0.5)] hover:shadow-[var(--shadow-glow-primary)]"
+            className="group flex items-center justify-center gap-3 rounded-xl border border-[var(--border-accent)] bg-[var(--accent-primary-muted)] px-3 py-3 transition-all hover:bg-[rgba(61,127,252,0.18)] hover:border-[rgba(61,127,252,0.5)] hover:shadow-[var(--shadow-glow-primary)]"
           >
-            <div className="min-w-0 flex-1 flex items-center">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={`${BASE_PATH}/brightdata-logo.svg`}
                 alt="Bright Data"
                 className="h-7 w-auto object-contain"
               />
-            </div>
             <svg className="shrink-0 text-[var(--text-tertiary)] group-hover:text-[var(--accent-primary)] transition-colors" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
           </a>
         </div>
