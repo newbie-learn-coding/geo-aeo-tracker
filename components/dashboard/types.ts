@@ -106,16 +106,16 @@ export type AppState = {
 };
 
 export const tabs = [
-  "Project Settings",
   "Prompt Hub",
-  "Persona Fan-Out",
-  "Niche Explorer",
   "Responses",
   "Visibility Analytics",
   "Citations",
   "Citation Opportunities",
   "AEO Audit",
+  "Niche Explorer",
+  "Persona Fan-Out",
   "Documentation",
+  "Project Settings",
 ] as const;
 
 export type TabKey = (typeof tabs)[number];
