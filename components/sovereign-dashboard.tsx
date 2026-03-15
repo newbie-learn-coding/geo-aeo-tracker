@@ -13,6 +13,8 @@ import { PromptHubTab } from "@/components/dashboard/tabs/prompt-hub-tab";
 import { ReputationSourcesTab } from "@/components/dashboard/tabs/reputation-sources-tab";
 import { VisibilityAnalyticsTab } from "@/components/dashboard/tabs/visibility-analytics-tab";
 import { DocumentationTab } from "@/components/dashboard/tabs/documentation-tab";
+import { SROAnalysisTab } from "@/components/dashboard/tabs/sro-analysis-tab";
+import { BattlecardsTab } from "@/components/dashboard/tabs/battlecards-tab";
 import { DemoLimitModal } from "@/components/dashboard/demo-limit-modal";
 import type { AppState, Provider, RunDelta, ScrapeRun, TabKey, Workspace } from "@/components/dashboard/types";
 import { ALL_PROVIDERS, PROVIDER_LABELS, tabs } from "@/components/dashboard/types";
@@ -94,6 +96,21 @@ const tabIcons: Record<TabKey, ReactNode> = {
       <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
     </Icon>
   ),
+  "SRO Analysis": (
+    <Icon>
+      <path d="M12 20V10" />
+      <path d="M18 20V4" />
+      <path d="M6 20v-4" />
+    </Icon>
+  ),
+  "Competitor Battlecards": (
+    <Icon>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <line x1="19" y1="8" x2="19" y2="14" />
+      <line x1="22" y1="11" x2="16" y2="11" />
+    </Icon>
+  ),
   Documentation: (
     <Icon>
       <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
@@ -138,6 +155,8 @@ const defaultState: AppState = {
   runs: [],
   auditUrl: "https://example.com",
   auditReport: null,
+  battlecards: [],
+  driftAlerts: [],
 };
 
 const tabMeta: Record<TabKey, { title: string; tooltip: string; details: string }> = {
@@ -194,6 +213,18 @@ const tabMeta: Record<TabKey, { title: string; tooltip: string; details: string 
     tooltip: "Audit site readiness for LLM discovery.",
     details:
       "Run checks for llms.txt, schema signals, and BLUF-style clarity indicators to quickly assess AI-answer readiness of a target URL.",
+  },
+  "SRO Analysis": {
+    title: "SRO Analysis",
+    tooltip: "Deep 6-stage analysis pipeline for any URL + keyword.",
+    details:
+      "Runs Gemini Grounding, cross-platform citation checks, SERP analysis, page scraping, site context extraction, and LLM-powered recommendations to produce an overall SRO score.",
+  },
+  "Competitor Battlecards": {
+    title: "Competitor Battlecards",
+    tooltip: "AI-generated competitive intelligence cards.",
+    details:
+      "Generate structured battlecards for each competitor with strengths, weaknesses, pricing insights, AI visibility notes, and key differentiators.",
   },
   Documentation: {
     title: "Documentation",
@@ -730,23 +761,19 @@ export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } 
     const totalJobs = prompts.length * providers.length;
     setBusy(true);
 
-    let completed = 0;
     let failed = 0;
     const allRuns: ScrapeRun[] = [];
 
-    for (const prompt of prompts) {
-      setMessage(`Batch: ${completed}/${totalJobs} done...`);
-      const results = await Promise.allSettled(
-        providers.map((p) => callScrapeOne(prompt, p)),
-      );
-      for (const r of results) {
-        if (r.status === "fulfilled" && r.value) {
-          allRuns.push(r.value);
-          completed++;
-        } else {
-          failed++;
-          completed++;
-        }
+    setMessage(`Launching ${totalJobs} jobs in parallel...`);
+    const jobs = prompts.flatMap((prompt) =>
+      providers.map((p) => callScrapeOne(prompt, p)),
+    );
+    const results = await Promise.allSettled(jobs);
+    for (const r of results) {
+      if (r.status === "fulfilled" && r.value) {
+        allRuns.push(r.value);
+      } else {
+        failed++;
       }
     }
 
@@ -995,6 +1022,21 @@ Requirements:
 
     if (activeTab === "Citation Opportunities") {
       return <CitationOpportunitiesTab runs={state.runs} brandWebsite={state.brand.website} />;
+    }
+
+    if (activeTab === "SRO Analysis") {
+      return null; // Rendered via always-mounted hidden div below
+    }
+
+    if (activeTab === "Competitor Battlecards") {
+      return (
+        <BattlecardsTab
+          competitors={state.competitors}
+          battlecards={state.battlecards}
+          onCompetitorsChange={(value) => setState((prev) => ({ ...prev, competitors: value }))}
+          onBuildBattlecards={() => {/* TODO: wire up battlecard generation */}}
+        />
+      );
     }
 
     if (activeTab === "Documentation") {
@@ -1380,9 +1422,17 @@ Requirements:
           )}
 
           {/* Active tab panel */}
-          <section className="rounded-xl border border-[var(--border-default)] p-3 md:p-5" style={{ background: "var(--surface-card)", backdropFilter: "blur(8px)" }}>
-            {renderActiveTab()}
-          </section>
+          {activeTab !== "SRO Analysis" && (
+            <section className="rounded-xl border border-[var(--border-default)] p-3 md:p-5" style={{ background: "var(--surface-card)", backdropFilter: "blur(8px)" }}>
+              {renderActiveTab()}
+            </section>
+          )}
+          {/* SRO Analysis stays mounted to preserve in-flight state */}
+          <div className={activeTab === "SRO Analysis" ? "" : "hidden"}>
+            <section className="rounded-xl border border-[var(--border-default)] p-3 md:p-5" style={{ background: "var(--surface-card)", backdropFilter: "blur(8px)" }}>
+              <SROAnalysisTab />
+            </section>
+          </div>
           <section className="mt-3 rounded-lg border border-[var(--border-subtle)] px-4 py-3" style={{ background: "var(--surface-card)" }}>
             <div className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-disabled)]">What this tab does</div>
             <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">{tabMeta[activeTab].details}</p>

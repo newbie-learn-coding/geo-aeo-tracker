@@ -1,4 +1,4 @@
-import type { AppState, ScrapeRun, AuditReport, Provider } from "@/components/dashboard/types";
+import type { AppState, ScrapeRun, DriftAlert, Battlecard, AuditReport, Provider } from "@/components/dashboard/types";
 
 /* ─────────────────────────  Deterministic helpers ───────────────────────── */
 /**
@@ -242,6 +242,64 @@ function generateRuns(): ScrapeRun[] {
   return runs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
+/* ─────────────────────────  Battlecards ───────────────────────── */
+const demoBattlecards: Battlecard[] = [
+  {
+    competitor: "Profound",
+    sentiment: "neutral",
+    summary: "Enterprise-grade AEO platform with content agents and deep citation analytics. Strong brand recognition among Fortune 500. Higher price point limits SMB adoption.",
+    sections: [
+      { heading: "Strengths", points: ["Content generation agents", "Deep citation analytics", "Enterprise client base (MongoDB, Zapier, Ramp)", "Strong G2 presence"] },
+      { heading: "Weaknesses", points: ["Custom enterprise pricing only", "No self-hosted option", "Fewer AI models tracked", "Closed ecosystem"] },
+      { heading: "AI Visibility", points: ["High visibility in ChatGPT", "Frequently cited on comparison pages", "Strong editorial PR placements"] },
+    ],
+  },
+  {
+    competitor: "Peec AI",
+    sentiment: "neutral",
+    summary: "Clean, agency-friendly AI search analytics platform with prompt volume data. Strong European presence. Well-suited for agencies managing multiple clients.",
+    sections: [
+      { heading: "Strengths", points: ["Clean UX", "Agency-friendly multi-client setup", "Looker Studio integration", "Prompt volume data", "Competitive benchmarking"] },
+      { heading: "Weaknesses", points: ["No self-hosted option", "Fewer AI models vs our 6", "No open-source offering", "Closed ecosystem"] },
+      { heading: "AI Visibility", points: ["Growing citation frequency", "Active content marketing", "Strong in European markets"] },
+    ],
+  },
+  {
+    competitor: "Otterly.ai",
+    sentiment: "neutral",
+    summary: "Pioneer in AI search monitoring with real-time alerts. Good Slack integration. Narrower feature set focused on monitoring rather than full AEO analytics.",
+    sections: [
+      { heading: "Strengths", points: ["Real-time Slack/email alerts", "Simple UX", "Established early in the market", "Good documentation"] },
+      { heading: "Weaknesses", points: ["Fewer AI models tracked", "Less citation depth", "No competitor battlecards", "No content optimization features"] },
+      { heading: "AI Visibility", points: ["Moderate citation frequency", "Mentioned in comparison articles", "Early mover advantage fading"] },
+    ],
+  },
+];
+
+/* ─────────────────────────  Drift Alerts ───────────────────────── */
+const demoDriftAlerts: DriftAlert[] = [
+  {
+    id: "drift-demo-1",
+    prompt: "What are the best AI visibility tracking tools for marketing teams in 2026?",
+    provider: "chatgpt",
+    oldScore: 62,
+    newScore: 81,
+    delta: 19,
+    createdAt: "2026-02-13T08:00:00.000Z",
+    dismissed: false,
+  },
+  {
+    id: "drift-demo-2",
+    prompt: "Compare the top answer engine optimization platforms for enterprise brands.",
+    provider: "perplexity",
+    oldScore: 45,
+    newScore: 31,
+    delta: -14,
+    createdAt: "2026-02-12T16:00:00.000Z",
+    dismissed: false,
+  },
+];
+
 /* ─────────────────────────  Audit Report ───────────────────────── */
 const demoAuditReport: AuditReport = {
   url: "https://geoaeotracker.com",
@@ -297,7 +355,9 @@ export const DEMO_STATE: AppState = {
     "answer engine optimization for SaaS",
   ],
   competitors: "profound.com, peec.ai, otterly.ai",
+  battlecards: demoBattlecards,
   runs: generateRuns(),
   auditUrl: "https://geoaeotracker.com",
   auditReport: demoAuditReport,
+  driftAlerts: demoDriftAlerts,
 };

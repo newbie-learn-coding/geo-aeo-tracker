@@ -77,6 +77,29 @@ export const PROVIDER_LABELS: Record<Provider, string> = {
   grok: "Grok",
 };
 
+type BattlecardSection = {
+  heading: string;
+  points: string[];
+};
+
+export type Battlecard = {
+  competitor: string;
+  sentiment: "positive" | "neutral" | "negative";
+  summary: string;
+  sections?: BattlecardSection[];
+};
+
+export type DriftAlert = {
+  id: string;
+  prompt: string;
+  provider: Provider;
+  oldScore: number;
+  newScore: number;
+  delta: number;
+  createdAt: string;
+  dismissed: boolean;
+};
+
 /** Computed delta for a prompt+provider pair between runs */
 export type RunDelta = {
   prompt: string;
@@ -103,6 +126,10 @@ export type AppState = {
   runs: ScrapeRun[];
   auditUrl: string;
   auditReport: AuditReport | null;
+  /** Competitor battlecards */
+  battlecards: Battlecard[];
+  /** Drift alerts */
+  driftAlerts: DriftAlert[];
 };
 
 export const tabs = [
@@ -112,6 +139,8 @@ export const tabs = [
   "Citations",
   "Citation Opportunities",
   "AEO Audit",
+  "SRO Analysis",
+  "Competitor Battlecards",
   "Niche Explorer",
   "Persona Fan-Out",
   "Documentation",
