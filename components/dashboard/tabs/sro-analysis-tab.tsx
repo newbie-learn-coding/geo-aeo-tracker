@@ -161,7 +161,7 @@ export function SROAnalysisTab() {
 
     setS((prev) => ({ ...INITIAL, targetUrl: prev.targetUrl, keyword: prev.keyword, stage: "grounding" }));
 
-    let grounding: GroundingResult | null = null;
+    const grounding: GroundingResult | null = null;
     let platforms: PlatformResult[] = [];
     let serp: SerpResult | null = null;
     let targetPage: ScrapedPage | null = null;

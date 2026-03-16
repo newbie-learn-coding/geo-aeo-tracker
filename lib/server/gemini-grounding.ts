@@ -41,6 +41,7 @@ export async function analyzeGrounding(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let GoogleGenAI: any;
   try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const mod = await (Function('return import("@google/genai")')() as Promise<any>);
     GoogleGenAI = mod.GoogleGenAI;
   } catch {
