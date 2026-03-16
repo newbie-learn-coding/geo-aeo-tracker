@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
-import { DM_Sans, Inter, JetBrains_Mono } from "next/font/google";
+import { DM_Sans, Inter, JetBrains_Mono, Noto_Sans_SC } from "next/font/google";
+import { headers } from "next/headers";
+import { Analytics } from "@/components/analytics";
+import { JsonLd } from "@/components/json-ld";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -20,39 +23,66 @@ const jetbrainsMono = JetBrains_Mono({
   display: "swap",
 });
 
+const notoSansSC = Noto_Sans_SC({
+  variable: "--font-noto-sc",
+  subsets: ["latin"],
+  weight: ["400", "500", "700"],
+  display: "swap",
+});
+
 export const metadata: Metadata = {
-  title: "GEO/AEO Tracker — Powered by Bright Data",
-  description: "AI brand visibility intelligence dashboard with local-first persistence",
+  metadataBase: new URL("https://aitracking.io"),
+  title: "AI Tracking — AI Visibility Tools",
+  description: "Free tools to check how AI models mention your brand. Compare responses from ChatGPT, Perplexity, Gemini, Copilot, Google AI, and Grok.",
+  openGraph: {
+    title: "AI Tracking — AI Visibility Tools",
+    description: "Free tools to check how AI models mention your brand.",
+    siteName: "AI Tracking",
+    type: "website",
+    url: "https://aitracking.io",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "AI Tracking — AI Visibility Tools",
+    description: "Free tools to check how AI models mention your brand.",
+  },
 };
 
 /** Apply dark theme before first paint — prevents flash */
-const themeScript = `(function(){try{var t=localStorage.getItem('sovereign-theme');if(t==='light'){document.documentElement.classList.add('light')}else{/* default to dark */document.documentElement.classList.remove('light')}}catch(e){}})()`;
+const themeScript = `(function(){try{var t=localStorage.getItem('sovereign-theme');if(t==='light'){document.documentElement.classList.add('light')}else{document.documentElement.classList.remove('light')}}catch(e){}})()`;
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const headersList = await headers();
+  const locale = headersList.get("x-locale") || "en";
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang={locale} suppressHydrationWarning>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-        {/* Google Analytics */}
-        <script async src="https://www.googletagmanager.com/gtag/js?id=G-SDGRVMER2G" />
-        {/* Google Remarketing */}
-        <script async src="https://www.googletagmanager.com/gtag/js?id=AW-879571748" />
-        <script dangerouslySetInnerHTML={{ __html: `
-          window.dataLayer = window.dataLayer || [];
-          function gtag(){dataLayer.push(arguments);}
-          gtag('js', new Date());
-          gtag('config', 'G-SDGRVMER2G');
-          gtag('config', 'AW-879571748');
-        `}} />
+        <JsonLd
+          data={{
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            name: "AI Tracking",
+            url: "https://aitracking.io",
+            description: "Free tools to check how AI models mention your brand.",
+            publisher: {
+              "@type": "Organization",
+              name: "AI Tracking",
+              url: "https://aitracking.io",
+            },
+          }}
+        />
+        <Analytics />
       </head>
       <body
         suppressHydrationWarning
-        className={`${dmSans.variable} ${inter.variable} ${jetbrainsMono.variable} antialiased`}
+        className={`${dmSans.variable} ${inter.variable} ${jetbrainsMono.variable} ${notoSansSC.variable} antialiased`}
       >
         {children}
       </body>

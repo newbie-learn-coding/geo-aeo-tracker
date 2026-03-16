@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { runAiScraper } from "@/lib/server/brightdata-scraper";
 import { checkAndRecordRun } from "@/lib/server/rate-limit";
+import { saveScrapeToDB } from "@/lib/server/db";
 
 // Allow up to 5 minutes for the scraper to complete
 export const maxDuration = 300;
@@ -46,6 +47,15 @@ export async function POST(req: NextRequest) {
     const result = await runAiScraper(parsed);
 
     console.log(`[trigger] Job done jobId=${jobId} provider=${parsed.provider} answer.length=${result.answer.length} sources=${result.sources.length}`);
+
+    // Fire-and-forget DB save
+    saveScrapeToDB({
+      provider: parsed.provider,
+      prompt: parsed.prompt,
+      answer: result.answer,
+      sources: result.sources,
+      ip,
+    }).catch(() => {});
 
     return NextResponse.json({ jobId, status: "ready", result });
   } catch (error) {

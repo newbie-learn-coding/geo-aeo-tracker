@@ -1,0 +1,18 @@
+services:
+  geo-tracker:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_DEMO_ONLY: "false"
+    container_name: geo-tracker
+    restart: unless-stopped
+    ports:
+      - "3102:3000"
+    env_file:
+      - .env.production
+    networks:
+      - nginx-proxy_default
+
+networks:
+  nginx-proxy_default:
+    external: true

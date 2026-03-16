@@ -234,7 +234,6 @@ const tabMeta: Record<TabKey, { title: string; tooltip: string; details: string 
   },
 };
 
-const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } = {}) {
   const [activeTab, setActiveTab] = useState<TabKey>("Project Settings");
@@ -609,7 +608,7 @@ export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } 
       console.log(`[scrape] callScrapeOne: START provider=${provider} prompt="${prompt.slice(0, 80)}..."`);
 
       // Trigger — waits for full scrape completion, returns result directly
-      const triggerRes = await fetch(`${BASE_PATH}/api/scrape/trigger`, {
+      const triggerRes = await fetch(`/api/scrape/trigger`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider, prompt, requireSources: true }),
@@ -642,7 +641,7 @@ export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } 
       let aiAnalyzed = false;
 
       try {
-        const analysisRes = await fetch(`${BASE_PATH}/api/analyze-run`, {
+        const analysisRes = await fetch(`/api/analyze-run`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -866,7 +865,7 @@ export function SovereignDashboard({ demoMode = false }: { demoMode?: boolean } 
     setMessage("Generating niche queries...");
 
     try {
-      const response = await fetch(`${BASE_PATH}/api/analyze`, {
+      const response = await fetch(`/api/analyze`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -919,7 +918,7 @@ Requirements:
     setMessage("Running AEO audit...");
 
     try {
-      const response = await fetch(`${BASE_PATH}/api/audit`, {
+      const response = await fetch(`/api/audit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: state.auditUrl }),
@@ -1086,7 +1085,7 @@ Requirements:
         <div className="border-b border-[var(--border-subtle)] px-4 py-3">
           {/* Logo row */}
           <div className="flex items-center gap-2 mb-3">
-            <img src={`${BASE_PATH}/brightdata-logo.svg`} alt="Bright Data" className="h-5 w-auto" />
+            <img src={`/brightdata-logo.svg`} alt="Bright Data" className="h-5 w-auto" />
             {demoMode && (
               <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-white/8 text-[var(--text-tertiary)] border border-[var(--border-subtle)]">
                 Demo
@@ -1225,7 +1224,7 @@ Requirements:
           >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={`${BASE_PATH}/brightdata-logo.svg`}
+                src={`/brightdata-logo.svg`}
                 alt="Bright Data"
                 className="h-7 w-auto object-contain"
               />
